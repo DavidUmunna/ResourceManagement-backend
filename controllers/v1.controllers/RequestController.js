@@ -2,7 +2,7 @@ const users=require("../../models/users_")
 const PurchaseOrder = require("../../models/PurchaseOrder")
 const {  StaffResponseAlert,MoreInformationAlert } = require("./notification")
 //const requests=require("../models/PurchaseOrder")
-
+const {getPagination,getPagingData}=require("../../Global_Functions/pagination")
 const ReviewedRequests = async (req, res) => {
   try {
     const { orderId } = req.query
@@ -323,6 +323,101 @@ const ValidatePendingApprovals = async (requestId) => {
   }
 };
 
+const UnresolvedOrders=async(req,res)=>{
+  try{
+    const {userId,Department,role}=req.user
+    const {page,limit,skip}=getPagination(req)
+    const {date}=req.query;
+    const query={}
+    console.log(req.query)
+    
+    if(date==="yesterday"){
+      query.createdAt=new Date(Date.now()-(24*60*60*1000))
+    }else if(date==="Last 7 Days"){
+      const yesterday=new Date(Date.now()-(24*60*60*1000))
+      const AweektoYesterday=new Date(Date.now()-7*24*60*60*1000)
+      query.createdAt={$gte:AweektoYesterday,$lte:yesterday}
+    }else if(date==="Last 30 Days"){
+      const yesterday=new Date(Date.now()-(24*60*60*1000))
+      const AMonthtoYesterday=new Date(Date.now()-30*24*60*60*1000)
+      query.createdAt={$gte:AMonthtoYesterday,$lte:yesterday}
+    }else if(date==="Last 365 Days"){
+      const yesterday=new Date(Date.now()-(24*60*60*1000))
+      const AYeartoYesterday=new Date(Date.now()-365*24*60*60*1000)
+      query.createdAt={$gte:AYeartoYesterday,$lte:yesterday}
+    }
+    const Managers=["Waste Management Manager","Contracts_manager",
+    "Financial_manager","Environmental_lab_manager","Facility Manager"]
+    const subordinates=["Facility Manager","Waste Management Supervisor","lab_supervisor"]
+    let filteredOrders;
+    let paginatedOrders;
+    let total;
+    //console.log("query",query)
+
+    const orders=await PurchaseOrder.find(query).populate("staff", "-password -__v -role -canApprove -_id")
+           .populate("PendingApprovals.Reviewer","-password -__v ")
+           .populate("EditedBy","-password -__v")
+             .sort({ createdAt: -1 })
+             .skip(skip)
+             .limit(limit)      
+  
+
+
+    if(role=="Staff"){
+      return res.status(403).json({message:"you are not authorized to view "})
+    }
+    filteredOrders=orders
+    total=filteredOrders.length
+    paginatedOrders=filteredOrders.slice(skip,skip+limit)
+    if(Managers.includes(role)){
+      
+      filteredOrders=orders.filter(order => 
+        {if (!order.targetDepartment){
+          
+          return order.staff?.Department === Department
+        }
+        return order.targetDepartment===Department}
+      )
+    }else if(subordinates.includes(role)){
+      const NewFilteredOrders= filteredOrders.filter(order=>
+        !Managers.includes(order.staff.role)
+      )
+
+      total=NewFilteredOrders.length
+      paginatedOrders=NewFilteredOrders.slice(skip,skip+limit)
+
+    }else{
+      total=filteredOrders.length;
+      paginatedOrders=filteredOrders.slice(skip,skip+limit)
+    }
+    //console.log("paginated",paginatedOrders)
+
+  const response = paginatedOrders.filter(order => {
+  const plainOrder = order.toObject();
+
+  // Find the minimum level in PendingApprovals
+  const minLevel = Math.min(...plainOrder.PendingApprovals.map(a => a.Level));
+
+  // Return true if the user is one of the reviewers at that minimum level
+  return plainOrder.PendingApprovals.some(user_ => {
+    const reviewerId = user_.Reviewer?._id?.toString() || user_.Reviewer?.toString();
+    return user_.Level === minLevel && reviewerId === userId.toString();
+  });
+  });
+
+
+   
+
+
+    res.json({data:response,
+      Pagination:getPagingData(total,page,limit)});
+
+  }catch(error){
+    console.error("an error occured here",error)
+    res.status(500).json({message:"there was an error"})
+  }
+}
+
 
 
 const DeleteStaffResponse = async (req, res) => {
@@ -378,4 +473,4 @@ const DeleteStaffResponse = async (req, res) => {
 
 module.exports={StaffResponse,MoreInformation,ReviewedRequests,DeleteStaffResponse,
     GetStaffResponses,ValidatePendingApprovals,GetOverallMonthlyRequests,MonthlyStaffRequest,
-    UpdateExistingRequest  };
+    UpdateExistingRequest,UnresolvedOrders  };

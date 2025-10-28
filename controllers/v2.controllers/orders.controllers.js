@@ -254,3 +254,18 @@ exports.ReviewedRequests=async(req,res)=>{
 
     }
 }
+
+
+
+exports.getOverallMonthlyRequests=async(req,res)=>{
+    try{
+        const {Department}=req.query
+
+        const serviceResponse=await orderservice.GetOverallMonthlyRequests(Department)
+        res.status(200).json({data:Department?serviceResponse.data:serviceResponse.Request})
+
+    }catch(error){
+        console.error("An error occurred", error);
+        res.status(500).json({ message: "Server Error" });
+    }
+}

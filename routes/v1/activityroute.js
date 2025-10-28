@@ -1,5 +1,6 @@
 const Activity = require('../../models/Activity');
 const express=require('express')
+const auth=require('../../middlewares/check-auth')
 const { getPagination, getPagingData } = require('../../Global_Functions/pagination');
 const router=express.Router()
 
@@ -10,7 +11,7 @@ router.get("/:Department",async(req,res)=>{
         
         const {Department}=req.params
         const filter={}
-        console.log("Department pri ative",Department)
+
         if (Department=== "HSE_dep"){
               filter.category="HSE_materials"
         }else if(Department==="Environmental_lab_dep"){
@@ -18,7 +19,7 @@ router.get("/:Department",async(req,res)=>{
         }else if(Department==="Administration"){
             filter.category="Office_items"
         }
-        console.log(filter)
+     
     // Example filter by action type
     if (req.query.action) {
       query.action = req.query.action;
@@ -45,13 +46,32 @@ router.get("/:Department",async(req,res)=>{
         });
     }catch(error){
         console.error("originated from activity route",error)
-        res.status(500).json({ error: err.message });
+        res.status(500).json({ message: "Server Error" });
 
     }
 })
 
 
+router.delete("/:id",auth,async(req,res)=>{
+  try{
+    const {role}=req.user
+    const {id}=req.params
+    console.log("activity id",id)
 
+    if(role!="global_admin"){
+      return res.status(403).json({success:false,message:"you are not Authorized"})
+    }
+
+    const response=await Activity.deleteOne({_id:id})
+    console.log("the deleted log",response)
+    res.status(200).json({success:true,message:"Log Deleted Successfully"})
+  }catch(error){
+    console.error("originated from activity route",error)
+        res.status(500).json({ message:"server error" });
+
+  }
+
+})
 
 
 module.exports=router

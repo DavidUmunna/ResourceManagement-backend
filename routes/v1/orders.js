@@ -39,7 +39,7 @@ router.get("/StaffRequests",MonthlyStaffRequest)
 // Specialized analytics endpoints
 router.get('/analytics/purchase-orders/status-distribution', poAnalyticsController.getPOStatusDistribution);
 router.get('/analytics/purchase-orders/urgency-stats', poAnalyticsController.getPOUrgencyStats);
-
+router.get('/unresolvedorders',auth,RequestController.UnresolvedOrders)
 router.get("/accounts", auth,async (req, res) => {
   try {
     const { page, limit, skip } = getPagination(req);
@@ -106,7 +106,7 @@ router.get("/accounts", auth,async (req, res) => {
 
       
       
-      const global=[ "procurement_officer","human_resources","internal_auditor","global_admin","admin"]
+      const global=[ "procurement_officer","human_resources","internal_auditor","global_admin"]
       //const isAdmin= req.user.role==="admin"
       const orders=await PurchaseOrder.find().populate("staff",  "-password -__v -role -canApprove -_id")
       .populate("PendingApprovals").populate("EditedBy")
@@ -134,14 +134,7 @@ router.get("/", auth,monitorLogger,async (req, res) => {
     const query = {};
   
    
-    
-    const global=["procurement_officer","human_resources","internal_auditor","global_admin"]
-
-    //const isAdmin= req.user.role==="admin"
-    const managers=["waste_management_manager","PVT_manager","Environmental_lab_manager","Facility Manager"]
-    /*if (role!=="global_admin"){
-      query.role={$nin:managers}
-    }*/
+   
    let queryWithApprovals
     if (req.user.userId==='6830789898ef43e5803ea02c'){
       queryWithApprovals = {

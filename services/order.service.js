@@ -451,3 +451,40 @@ exports.ReviewedRequests=async(orderId)=>{
 }
 
 
+exports.GetOverallMonthlyRequests=async()=>{
+    const query={}
+    const now = new Date();
+    const startOfDay = new Date(Date.UTC(
+        now.getUTCFullYear(),
+        now.getUTCMonth(),
+    
+        1, 0, 0, 0
+    ));
+     
+        
+    const endOfDay = new Date(Date.UTC(
+        now.getUTCFullYear(),
+        now.getUTCMonth()+1,
+        0,23, 59, 59, 999
+    ));
+       
+    query.createdAt = {
+        $gte: startOfDay,
+        $lte: endOfDay,
+    };
+
+    const repositoryResponse=await orderRepository.getOrders(query)
+    const requests=repositoryResponse.orders
+     const filteredRequests=requests.filter((request)=>{
+            const plainRequest=request.toObject()
+            if(Department){
+                return plainRequest.staff.Department===Department
+            }
+            return true
+        }
+        
+        )
+  return {data:filteredRequests,Request:Request,total:filteredRequests.length}
+
+}
+

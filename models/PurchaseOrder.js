@@ -52,7 +52,7 @@ const PurchaseOrderSchema = new Schema({
       message:String,
       timestamps:{
         type:Date,
-        default:Date.now
+        default:Date
       }
      }]
   ,

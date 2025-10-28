@@ -79,7 +79,6 @@ app.use("/api/products", productRoutes);
 app.use("/api/orders", orderRoutes);
 app.use("/api/users", userRoutes);
 app.use("/api/signin", signinRoutes);
-
 app.use("/api/fileupload", uploadRoutes);
 app.use("/api/admin-user", adminUserRoutes);
 app.use("/api/access", accessRoutes);
@@ -116,8 +115,12 @@ app.use((req, res, next) => {
 
 
   if (isUnsafeMethod && !isExcludedPath) {
-    
+    try {
     return csrfProtection(req, res, next);
+  } catch (err) {
+    console.error('CSRF check failed:', err.message);
+    return res.status(403).json({ error: 'Forbidden - CSRF validation failed' });
+  }
   }
   next();
 })

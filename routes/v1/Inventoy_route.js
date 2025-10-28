@@ -32,7 +32,7 @@ router.get('/:Department', auth, async (req, res) => {
         const {page,limit,skip}=getPagination(req);
         const {Department}=req.params
         const filter={}
-        console.log("Department pri",Department)
+       
         if (Department==="HSE_dep"){
               filter.category="HSE_materials"
         }else if(Department==="Environmental_lab_dep"){
@@ -40,7 +40,7 @@ router.get('/:Department', auth, async (req, res) => {
         }else if(Department==="Administration"){
             filter.category="Office_items"
         }
-        console.log(filter)
+       
 
 
         
@@ -61,7 +61,7 @@ router.get('/:Department', auth, async (req, res) => {
   
         res.json({ success: true, data: items,Pagination:getPagingData(total,page,limit) });
     } catch (err) {
-      console.error("from inventory get:",err)
+      
       res.status(500).json({ success: false, message: 'Server Error' });
     }
 });
@@ -95,7 +95,7 @@ router.post('/', auth, async (req, res) => {
     await newItem.save();
     res.status(201).json({ success: true, data: newItem });
   } catch (err) {
-    console.error("a posting error:",err)
+   
     if (err.name === 'ValidationError') {
       return res.status(400).json({ 
         success: false, 

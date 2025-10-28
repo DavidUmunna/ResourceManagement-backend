@@ -35,7 +35,7 @@ router.post('/create',csrfProtection, async(req,res)=>{
       category,
       Department
     })
-    console.log(new_log)
+  
 
     await new_log.save()
 
@@ -79,7 +79,7 @@ router.put("/:id",csrfProtection,async(req,res)=>{
    try{
     const id=req.params.id
     const {Staff_Name, quantity, inventory_item,purpose ,status,category,Department}=req.body
-    console.log("request body inventory",req.body)
+
     const inventory_log_item=await inventory_logs.findById(id)
     if (Staff_Name){
       inventory_log_item.Staff_Name=Staff_Name
@@ -88,7 +88,7 @@ router.put("/:id",csrfProtection,async(req,res)=>{
       inventory_log_item.quantity=quantity
     }
     if(inventory_item){
-      console.log("inventory item",inventory_item)
+
       inventory_log_item.inventory_item=inventory_item
     }else if(status){
       inventory_log_item.status=status
@@ -99,7 +99,7 @@ router.put("/:id",csrfProtection,async(req,res)=>{
       inventory_log_item.category=category
     }
     if(Department){
-      console.log(Department)
+      
       inventory_log_item.Department=Department
     }
 
@@ -133,7 +133,7 @@ router.get('/:Department', auth, async (req, res) => {
         const {page,limit,skip}=getPagination(req);
         const {Department}=req.params
         const filter={}
-        console.log("Department pri",Department)
+
         if (Department==="HSE_dep"){
             filter.category="HSE_materials"
         }else if(Department==="Environmental_lab_dep"){

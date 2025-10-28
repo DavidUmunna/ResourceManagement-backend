@@ -56,7 +56,7 @@ router.post('/login', loginRateLimiter, async (req, res) => {
       'EX',
       1200 // 15 minutes TTL
     );
-
+    console.log("session  Id",sessionId)
     res.cookie("sessionId", sessionId, {
       httpOnly: true,
       maxAge: 20 * 60 * 1000, // 15 minutes
