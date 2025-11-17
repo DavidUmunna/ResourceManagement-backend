@@ -90,7 +90,11 @@ if (!fs.existsSync(uploadDir)) {
   try {
     const fileId= req.params.fileId;
     const filename=req.params.filename;
-   
+    console.log(req.params)
+    const objectIdRegex = /^[a-fA-F0-9]{24}$/;
+    if (!objectIdRegex.test(fileId)) {
+       return res.status(400).json({ error: 'Invalid file ID format.' });
+    }
     // Find the document that contains this file
     const fileDoc = await file_.findById(fileId);
 
