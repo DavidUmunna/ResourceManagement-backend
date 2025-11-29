@@ -440,6 +440,105 @@ const StaffResponseAlert = async (requestId) => {
        
     }
 };
+
+// emailTemplates/expiredFiletracksTemplate.js
+function generateExpiredFiletracksEmail(recipientName, expiredFiletracks, loginUrl) {
+  const filetracksList = expiredFiletracks.map(filetrack => 
+    `• ${filetrack.name} (Expired: ${new Date(filetrack.expiryDate).toLocaleDateString()})`
+  ).join('\n');
+
+  return `
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <style>
+        body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+        .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+        .header { background: #f8f9fa; padding: 20px; text-align: center; border-radius: 5px; }
+        .content { padding: 20px; background: #fff; }
+        .filetracks-list { background: #f8f9fa; padding: 15px; border-radius: 5px; margin: 20px 0; }
+        .login-button { 
+            display: inline-block; 
+            padding: 12px 24px; 
+            background: #007bff; 
+            color: white; 
+            text-decoration: none; 
+            border-radius: 5px; 
+            margin: 20px 0; 
+        }
+        .footer { 
+            margin-top: 30px; 
+            padding-top: 20px; 
+            border-top: 1px solid #eee; 
+            color: #666; 
+            font-size: 14px; 
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>Filetracks Renewal Notice</h1>
+        </div>
+        
+        <div class="content">
+            <p>Dear ${recipientName},</p>
+            
+            <p>We're writing to inform you that some of your filetracks have expired and require renewal to maintain access.</p>
+            
+            <div class="filetracks-list">
+                <h3>Expired Filetracks:</h3>
+                <pre style="font-family: Arial, sans-serif; white-space: pre-wrap;">${filetracksList}</pre>
+            </div>
+            
+            <p>To renew your filetracks and ensure uninterrupted access, please log in to your account:</p>
+            
+            <div style="text-align: center;">
+                <a href="${loginUrl}" class="login-button">Log In to Your Account</a>
+            </div>
+            
+            <p>If you have any questions or need assistance with the renewal process, please don't hesitate to contact our support team.</p>
+            
+            <p>Best regards,<br>Your Application Team</p>
+        </div>
+        
+        <div class="footer">
+            <p>This is an automated message. Please do not reply to this email.</p>
+        </div>
+    </div>
+</body>
+</html>
+  `;
+}
+
+// Plain text version for email clients that don't support HTML
+function generateExpiredFiletracksText(recipientName, expiredFiletracks, loginUrl) {
+  const filetracksList = expiredFiletracks.map(filetrack => 
+    `- ${filetrack.name} (Expired: ${new Date(filetrack.expiryDate).toLocaleDateString()})`
+  ).join('\n');
+
+  return `
+Dear ${recipientName},
+
+We're writing to inform you that some of your filetracks have expired and require renewal to maintain access.
+
+Expired Filetracks:
+${filetracksList}
+
+To renew your filetracks and ensure uninterrupted access, please log in to your account:
+${loginUrl}
+
+If you have any questions or need assistance with the renewal process, please don't hesitate to contact our support team.
+
+Best regards,
+Your Application Team
+
+This is an automated message. Please do not reply to this email.
+  `;
+}
+
 module.exports={notifications,IncomingRequest,RequestActivity,MoreInformationAlert,StaffResponseAlert,ApprovedRequests
-    ,sendOtpEmail
+    ,sendOtpEmail,generateExpiredFiletracksEmail,
+  generateExpiredFiletracksText
 };

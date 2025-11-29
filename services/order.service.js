@@ -170,9 +170,9 @@ exports.getStaffDisplayOrders=async(user)=>{
 }
 
 exports.createOrder=async(payload,user,res)=>{
-   const {email}=user
+   const {_id}=user
 
-   const User=await user.findOne({email})
+   const User=await user.findOne({_id})
    if (!User) {
          return res.status(404).json({ error: "User not found" });
    }   

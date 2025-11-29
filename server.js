@@ -8,10 +8,13 @@ const express = require("express");
 const cors = require("cors");
 const cookieParser = require("cookie-parser");
 const helmet=require("helmet")
+require("./Global_Functions/checkExpiry");
 // Custom modules
 const connectDB = require("./db");
 const cspmiddleware=require("./middlewares/csp")
+const auth=require("./middlewares/check-auth")
 // Route imports
+const UserSchema=require('./models/users_')
 const uploadRoutes = require("./routes/v1/fileupload");
 const skiptrackRoutes=require("./routes/v1/skips_route")
 const departmentRoutes = require("./routes/v1/Department_route");
@@ -35,6 +38,10 @@ const monitoring=require("./routes/v1/Monitoring_route")
 const Scheduling=require("./routes/v1/SchedulingRoutes")
 const Otp=require("./routes/v1/OTP_route")
 const PaymentDetails=require("./routes/v1/PaymentRoute")
+const FileTrack=require("./routes/v2/FileTracking")
+const ComplianceLog=require("./routes/v2/ComplianceLog")
+const swaggerUi = require("swagger-ui-express");
+const swaggerSpec = require("./docs/swagger");
 // Initialize Express
 const app = express();
 
@@ -96,6 +103,10 @@ app.use("/api/monitoring",monitoring)
 app.use("/api/scheduling",Scheduling)
 app.use("/api/otp",Otp)
 app.use("/api/paymentdetails",PaymentDetails)
+app.use("/api/v2/filetrack",FileTrack)
+app.use("/api/v2/compliance",ComplianceLog)
+app.use("/api/docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec))
+app.get("/api/docs.json", (req, res) => res.json(swaggerSpec));
 
 
 app.use((req, res, next) => {
@@ -106,7 +117,9 @@ app.use((req, res, next) => {
     "/api/orders/memo",
     "/api/disbursement-schedules/:id/submit",
     "/api/scheduling/disbursement-schedules/:id",
-    "/api/otp/"
+    "/api/otp/",
+    "api/v2/filetrack",
+    "/save-token"
     
   ];
 
@@ -138,6 +151,32 @@ app.get("/", (req, res) => {
   } catch (err) {
     console.error("❌ Server error:", err);
     res.status(500).send("Server error");
+  }
+});
+
+//Notification-token
+app.post('/save-token',auth, async(req, res) => {
+  try{
+
+    const { currentToken } = req.body;
+    
+    const {userId}=req.user
+    if (!currentToken) {
+      return res.status(400).json({ error: "Token is required" });
+    }
+    const currentUser=await UserSchema.findById({_id:userId})
+    if(!currentUser){
+      return res.status(404).json({message:"there is no such user"})
+    }
+    currentUser.NotificationToken=currentToken
+    
+    await currentUser.save()
+    console.log("token saved")
+    
+    res.status(200).json({ message: "Token saved successfully" });
+  }catch(error){
+    console.error("notification error",error)
+
   }
 });
 

@@ -18,48 +18,39 @@ if (!fs.existsSync(uploadDir)) {
 }
 
 
-  router.post("/create"
-    , upload.array("files", 5), async (req, res) => {
+ router.post("/create", upload.array("file", 5), async (req, res) => {
   try {
     const { userId } = req.body;
-    
+
     const allowedTypes = [
-  "image/jpeg",
-  "image/jpg",
-  "image/png",
-  "application/pdf",
-  "application/msword",
-  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-  "application/vnd.oasis.opendocument.text"
-];
+      "image/jpeg",
+      "image/png",
+      "application/pdf",
+      "text/csv",
+      "application/vnd.ms-excel",
+      "application/msword",
+      "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      "application/vnd.oasis.opendocument.text",
+    ];
 
+    // Validate first
+    for (const file of req.files) {
+      if (!allowedTypes.includes(file.mimetype)) {
+        return res.status(400).json({
+          success: false,
+          message: `Unsupported file type: ${file.originalname}`,
+        });
+      }
+    }
 
-    
+    // Upload only after validation passes
     const uploadedFiles = await Promise.all(
       req.files.map(async (file) => {
-
-
-        if (!allowedTypes.includes(file.mimetype)) {
-              return res.status(400).json({ message: "Unsupported file type" });
-            }
-
         const driveFile = await uploadFileToDrive(file.path, sanitize(file.originalname), file.mimetype);
-       
-        // Optional: remove temp file
         fs.unlinkSync(file.path);
 
-        const  new_file= new file_({
-          staff:userId,
-          filename: file.originalname,
-          driveFileId: driveFile.id,
-          viewLink: driveFile.webViewLink,
-          downloadLink: driveFile.webContentLink,
-        })
-
-       
-        
         return {
-          staff:userId,
+          staff: userId,
           filename: file.originalname,
           driveFileId: driveFile.id,
           viewLink: driveFile.webViewLink,
@@ -71,20 +62,20 @@ if (!fs.existsSync(uploadDir)) {
     const newFile = new file_({ files: uploadedFiles });
     await newFile.save();
 
-
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
-      message: "Files uploaded to Google Drive",
-      files: newFile
+      message: "Files uploaded",
+      files: newFile,
     });
+
   } catch (err) {
- 
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
-      error: "Upload to Google Drive failed",
+      error: err.message || "Upload failed",
     });
   }
 });
+
 
  router.get("/download/:fileId/:filename", async (req, res) => {
   try {

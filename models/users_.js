@@ -16,6 +16,7 @@ const UserSchema = new Schema({
       default: false
     },
   WorkStatus:{type:String,enum:["On-Site","On-Leave","Remote"]},
+  NotificationToken:{type:String},
   resetToken:String,
   resetTokenExpiration:Date
   

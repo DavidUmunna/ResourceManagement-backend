@@ -1,203 +1,85 @@
 # Procurement API
 
+RESTful backend for procurement operations, file tracking, and compliance logging. Swagger docs are auto-generated from JSDoc annotations and served via Swagger UI.
+
 ## Table of Contents
-1. [Introduction](#introduction)
-2. [Features](#features)
-3. [Requirements](#requirements)
-4. [Installation](#installation)
-5. [Usage](#usage)
-6. [Project Structure](#project-structure)
-7. [API Endpoints](#api-endpoints)
-8. [Workflows](#workflows)
-   - [Authentication Workflow](#authentication-workflow)
-   - [Order Management Workflow](#order-management-workflow)
-9. [Database Schema](#database-schema)
-10. [Environment Variables](#environment-variables)
-11. [Error Handling](#error-handling)
-12. [Contributing](#contributing)
-13. [License](#license)
+- [Features](#features)
+- [Requirements](#requirements)
+- [Installation](#installation)
+- [Usage](#usage)
+- [API Docs](#api-docs)
+- [Key Modules](#key-modules)
+- [Environment Variables](#environment-variables)
+- [Project Structure](#project-structure)
 
----
+## Features
+- Purchase orders, suppliers, products, inventory, and assets management.
+- JWT auth with role-based access via `middlewares/check-auth`.
++- File tracking with expiry checks (daily cron), push notifications, and email alerts for expired tracks.
+- Compliance logging automatically generated for FileTrack create/update/delete actions (read-only endpoints to query logs).
+- Email notifications (OTP, request updates, expired filetracks) using Nodemailer.
+- CSRF protection, CORS, Helmet, and rate limiting hooks.
 
-## 1. Introduction
+## Requirements
+- Node.js 22.x (see `engines`)
+- npm
+- MongoDB instance
 
-The **Procurement API** is a back-end service designed to streamline and automate procurement processes. It provides a set of RESTful endpoints for managing purchase orders, suppliers, and inventory. The API also includes authentication and authorization features to ensure secure access.
+## Installation
+```bash
+git clone https://github.com/DavidUmunna/procurement_api.git
+cd procurement_api
+npm install
+```
 
----
+## Usage
+Start the server:
+```bash
+npm start
+```
+Default base URL: `http://localhost:5000`
 
-## 2. Features
+## API Docs
+- Swagger UI: `GET /api/docs`
+- OpenAPI JSON: `GET /api/docs.json`
+Docs are generated from JSDoc blocks in routes/controllers/models using `swagger-jsdoc` + `swagger-ui-express` (see `docs/swagger.js`).
 
-- **Purchase Order Management**:
-  - Create, update, and delete purchase orders.
-  - Approve orders with admin privileges.
+## Key Modules
+- File tracking: `routes/v2/FileTracking.js`, `services/FileTracking.service.js`, `repositories/FileTracking.repository.js`, `Global_Functions/checkExpiry.js` (daily expiry cron).
+- Compliance logs: `models/ComplianceLog.js`, `routes/v2/ComplianceLog.js`, `controllers/v2.controllers/ComplianceLog.controllers.js`, `services/ComplianceLog.service.js`, `repositories/ComplianceLog.repository.js`.
+- Notifications: `controllers/v1.controllers/notification.js`, `emailnotification/emailNotification.js`, `pushNotifications/fileTrack.js`.
+- Auth: `middlewares/check-auth.js`, `routes/v1/signin.js`, `routes/v1/users.js`.
 
-- **Supplier Management**:
-  - Add, update, and delete supplier information.
+## Environment Variables
+Create a `.env` file with values like:
+```env
+PORT=5000
+MONGO_URI=mongodb://127.0.0.1:27017/procurement
+JWT_SECRET=your_secret_key
+EMAIL_PASSWORD=...
+APP_PASS=...
+FRONTEND_BASED_URL=http://localhost:3000
+API_BASE_URL=http://localhost:5000
+```
+Other provider keys (Google Drive, Firebase, Resend, etc.) as required by their modules.
 
-- **Authentication**:
-  - Secure login with JWT-based authentication.
-  - Role-based access control for admin and regular users.
-  -Check-auth middleware that helps authenticate users session status on every request
-
-- **File Uploads**:
-  - Upload and manage files associated with purchase orders.
-  -Download of files also fromm the google cloud using file name  as reference 
-
-- **Error Handling**:
-  - Comprehensive error handling for all endpoints.
-
----
-
-## 3. Requirements
-
-- **Node.js** (version 14 or higher)
-- **npm** (version 6 or higher)
-- **MongoDB** (local or cloud instance)
-- **bcrypt**
-- **express**
-- **Dotenv**
-- **express validator**
-- **fs**
-- **googleapis**
-- **jsonwebtoken**
-- **path**
-- **process**
-- **timestamp**
-- **nodemailer** 
-
-## 4. Installation
-
-1. Clone this repository:
-    ```bash
-    git clone https://github.com/DavidUmunna/procurement_api.git
-    cd procurement_api
-    ```
-
-2. Install the required packages:
-    ```bash
-    npm install
-    ```
-
-3. Set up your environment variables:
-    - Create a `.env` file in the root directory and add the following:
-      ```env
-      PORT=5000
-      MONGO_URI=mongodb://127.0.0.1:27017/procurement
-      JWT_SECRET=your_secret_key
-      ```
-
-4. Start the server:
-    ```bash
-    npm start
-    ```
-
----
-
-## 5. Usage
-
-1. Start the API server:
-    ```bash
-    npm start
-    node server (name of main file)
-    ```
-
-2. The API will be available at `http://localhost:5000`.
-
-3. Use tools like Postman or cURL to interact with the API endpoints.
-
----
-
-## 6. Project Structure
+## Project Structure (abridged)
+```
 procurement_api/
-├── .gitignore
-├── package.json
-├── README.md
-├── server.js              # Main server file
-├── db.js                  # MongoDB connection setup
-├── maintenance.js         # Maintenance script for database cleanup
-├── models/                # Mongoose models
-│   ├── Product.js         # Product schema
-│   ├── PurchaseOrder.js   # Purchase order schema
-│   ├── Supplier.js        # Supplier schema
-│   ├──users_.js          # User schema
-|   ├──Department.js      # Department Schema
-|   ├── file.js            # file tracking schema
-|   ├── Assets.js          # Assets schema
-|   ├──Inventory.js       # inventory schema
-|   ├──Activity.js        # Recent activity schema
-|   ├──tasks.js           # tasks assigned to users 
-|   ├── CompanyData.js     # schema for companyy info
-|   ├── Skips_tracking.js  # schema for tracking skips 
-|   ├──invoicing.js       # for creating invoices
-├── routes/                # API routes
-│   ├── access.js          # Access control routes
-│   ├── admin_user.js      # Admin user routes
-│   ├── check-auth.js      # Authentication middleware
-│   ├── fileupload.js      # File upload routes
-│   ├── orders.js          # Purchase order routes
-│   ├── products.js        # Product routes
-│   ├── signin.js          # User sign-in routes
-│   ├── suppliers.js       # Supplier routes
-│   └── users.js           # User management routes
-├── middleware/
-|   ├── check-Auth.js      # intermediary between the request and endpoint
-|
+├── server.js                  # Express setup, routes, middleware, swagger UI
+├── docs/swagger.js            # swagger-jsdoc config
+├── Global_Functions/          # Cron jobs, pagination, helpers
 ├── controllers/
-|   ├── Analytics.js       # for complex data analysis
-|   ├── pagination.js      # pagination function logic
-|
-├── Workflow/              # flowchart design
-|   ├── Backend flow/     
-|   ├── Frontend flow/
-|
-├── uploads/               # Directory for uploaded files
-└── data/                  # Database-related files
-
-
-
----
-
-## 7. API Endpoints
-
-### **Authentication**
-- `POST /api/signin`: Logs in a user and returns a JWT token.
-- `GET /api/check-auth`: Verifies the user's authentication status.
-
-### **Purchase Orders**
-- `GET /api/orders`: Fetches all purchase orders.
-- `GET /api/orders/:email`: Fetches orders for a specific user by email.
-- `POST /api/orders`: Creates a new purchase order.
-- `PUT /api/orders/:id/approve`: Approves a purchase order.
-
-### **Suppliers**
-- `GET /api/suppliers`: Fetches all suppliers.
-- `POST /api/suppliers`: Adds a new supplier.
-
-### **Products**
-- `GET /api/products`: Fetches all products.
-- `POST /api/products`: Adds a new product.
-
-### **User Information**
-- `GET /api/users`:fetches all users 
-- `GET /api/users/:email`:fetches all users information with the email
-- `POST /api/users`:creates new user
-- `PUT /api/users`:updates user informarion like if user want to change password
-- `DELETE /api/users`:deletes user and user information
-
----
-
-## 8. Workflows
-
-### 8.1 Authentication Workflow
-1. **Login**:
-   - Users log in via the `/api/signin` endpoint.
-   - A JWT token is generated and stored in a cookie.
-   - The `check-auth.js` middleware validates the token for protected routes.
-
-2. **Token Validation**:
-   - The `check-auth.js` middleware verifies the token and attaches the decoded user information to `req.user`.
-
----
+│   ├── v1.controllers/        # Legacy controllers (notifications, requests)
+│   └── v2.controllers/        # v2 controllers (FileTracking, ComplianceLog)
+├── routes/
+│   ├── v1/                    # v1 REST routes (orders, users, uploads, etc.)
+│   └── v2/                    # v2 routes (filetrack, compliance-logs)
+├── services/                  # Business logic (FileTracking, ComplianceLog, etc.)
+├── repositories/              # Data access layer
+├── models/                    # Mongoose schemas (users, purchase orders, filetracking, complianceLog, etc.)
+└── emailnotification/         # Nodemailer setup
+```
 
 ### 8.2 Order Management Workflow
 1. **Create Order**:
@@ -271,5 +153,3 @@ git checkout -b feature-branch
   urgency: { type: String, enum: ["VeryUrgent", "Urgent", "NotUrgent"], default: "NotUrgent" },
   remarks: { type: String },
 }, { timestamps: true });*/
-
-

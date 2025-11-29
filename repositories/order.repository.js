@@ -2,7 +2,7 @@ const PurchaseOrder=require("../models/PurchaseOrder")
 const users_ = require("../models/users_");
 exports.createOrder=async(data)=>{
     const order=new PurchaseOrder(data)
-    savedOrder= await order.save()
+    const savedOrder= await order.save()
     return {data:savedOrder}
 }
 
@@ -10,7 +10,7 @@ exports.findOrderbyid=async(Id)=>{
     return await PurchaseOrder.findById(Id);
 }
 
-exports.getPaginatedOrders=async(query)=>{
+exports.getPaginatedOrders=async(query,limit)=>{
     const [total, orders] = await Promise.all([
               PurchaseOrder.countDocuments(query),
               PurchaseOrder.find(query)
