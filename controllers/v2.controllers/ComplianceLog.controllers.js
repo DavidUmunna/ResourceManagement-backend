@@ -42,7 +42,8 @@ exports.createComplianceLog = async (req, res) => {
 
 exports.getComplianceLogs = async (req, res) => {
   try {
-    const { page, limit, skip } = getPagination(req, 20);
+    const { page, limit, skip } = getPagination(req);
+    console.log("for compliance",page ,limit,skip)
     const filters = {
       action: req.query.action,
       entityId: req.query.entityId,

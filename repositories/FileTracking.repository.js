@@ -22,7 +22,7 @@ exports.getAllFileTracks=async()=>{
     return {data:FiletrackItems}
 }
 
-exports.getPaginatedTracks=async(query,limit,user)=>{
+exports.getPaginatedTracks=async(query,limit,user,skip)=>{
     try{
 
         
@@ -30,7 +30,7 @@ exports.getPaginatedTracks=async(query,limit,user)=>{
             FileTracks.countDocuments(query),
         FileTracks.find(query)
         .sort({createdAt:-1})
-        .limit(limit)
+        .limit(limit).skip(skip)
     ])
       
     const ExpiredTracks=Tracks.filter((track)=>(
@@ -53,7 +53,7 @@ exports.getPaginatedTracks=async(query,limit,user)=>{
         
         return plainTrack;
     })))
-    console.log("direct repo resp",response)
+
     return {tracks:response,total:total,expiredTracks:expiredTrackSummaries}
     }catch(error){
         console.log("error at repo")

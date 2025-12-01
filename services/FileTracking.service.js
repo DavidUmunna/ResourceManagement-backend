@@ -42,19 +42,19 @@ exports.createFileTrack=async(payload,user)=>{
 }
 
 
-exports.getPaginatedTracks=async(user,limit)=>{
+exports.getPaginatedTracks=async(user,limit,skip)=>{
     try{
         const query={}
         const currentUser=await user_.findOne({_id:user.userId})
         if(!currentUser){
             throw new Error("USER_NOT_FOUND")
         }
-        const repositoryResponse=await FileTrackingRepository.getPaginatedTracks(query,limit,user)
-        console.log("repo res",repositoryResponse)
+        const repositoryResponse=await FileTrackingRepository.getPaginatedTracks(query,limit,user,skip)
+   
         return {data:repositoryResponse.tracks,total:repositoryResponse.total}
 
     }catch(error){
-        console.error("an error occured in the fileupload service layer(getPaginatedFilelTracks)")
+        console.error("an error occured in the file tracking service layer(getPaginatedFilelTracks)")
         console.log(error)
         throw error;
 

@@ -25,7 +25,8 @@ exports.getPaginatedTracks=async(req,res)=>{
     try{
         const currentUser=req.user
          const { page, limit, skip } = getPagination(req);
-        const serviceRepository=await FileTrackingService.getPaginatedTracks(currentUser,limit)
+         console.log("the limit",page,limit,skip)
+        const serviceRepository=await FileTrackingService.getPaginatedTracks(currentUser,limit,skip)
 
       
   
