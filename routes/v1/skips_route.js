@@ -9,51 +9,63 @@ const router=express.Router()
 const ExcelJS = require('exceljs');
 const PDFDocument = require('pdfkit'); // for PDF export
 
-router.get("/",auth,async(req,res)=>{
-    try{
-        const {page,limit,skip}=getPagination(req)
-        const filter={}
-        const {WasteSource,startDate,endDate,search}=req.query;
+router.get("/", auth, async (req, res) => {
+    try {
+        const { page, limit, skip } = getPagination(req);
+        const filter = {};
+        const { WasteStream, startDate, endDate, searchTerm } = req.query;
 
-        if (WasteSource && WasteSource!=='All') filter.WasteSource=WasteSource
-        
-        if (search){
-            filter.$or=[
-                {skip_id:{$regex:search, $option:'i'}},
-
-            ]
+        if (WasteStream && WasteStream !== "All") {
+            filter.WasteStream = WasteStream;
         }
-        if (startDate!=='' && endDate!=='') {
+
+        if (searchTerm && searchTerm.trim() !== "") {
+            filter.$or = [
+                { skip_id: { $regex: searchTerm, $options: "i" } },
+                { WasteSource: { $regex: searchTerm, $options: "i" } }
+            ];
+        }
+
+        if (startDate !== "" && endDate !== "") {
             const start = new Date(startDate);
             const end = new Date(endDate);
-            end.setHours(23, 59, 59, 999); // include full end day
-           
+            end.setHours(23, 59, 59, 999);
+
             filter.DateMobilized = {
                 $gte: start,
                 $lte: end
             };
         }
-        
-        
 
-        const [total,items] = await Promise.all([
-        skipsTracking.countDocuments(filter),
-        skipsTracking.find(filter)
-        .sort({ lastUpdated: -1 })
-        .lean()
-        .skip(skip)
-        .limit(limit)])
-      
-        if (!items){
-            res.status(404).json({success:false,message:"file not found"})
+        console.log("filter:", filter);
+
+        const [total, items] = await Promise.all([
+            skipsTracking.countDocuments(filter),
+            skipsTracking.find(filter)
+                .sort({ lastUpdated: -1 })
+                .lean()
+                .skip(skip)
+                .limit(limit)
+        ]);
+
+        if (items.length === 0) {
+            return res
+                .status(404)
+                .json({ success: false, message: "No skip items found" });
         }
-        res.status(200).json({success:true,message:"skip items retrieved successfully", data:items,Pagination:getPagingData(total,page,limit) })
-    }catch(error){
-        console.error("error originated from skip_route GET:",error)
-        res.status(500).json({message:"server error"})
-    }
-})
 
+        return res.status(200).json({
+            success: true,
+            message: "skip items retrieved successfully",
+            data: items,
+            Pagination: getPagingData(total, page, limit)
+        });
+
+    } catch (error) {
+        console.error("error originated from skip_route GET:", error);
+        res.status(500).json({ message: "server error" });
+    }
+});
 
 
 
@@ -374,50 +386,59 @@ router.delete('/:id', auth, async (req, res) => {
 
 router.get('/stats', auth, async (req, res) => {
   try {
-    let { startDate, endDate } = req.query;
+    let { startDate, endDate, search, searchTerm, WasteStream, WasteSource } = req.query;
 
-    // Validate dates
-    if (!startDate || !endDate) {
-      startDate=new Date(new Date().setDate(1))
-      endDate=new Date()
+    // Defaults: current month to today
+  
+    console.log("the query params",req.query)
+
+    const match = {};
+     if (startDate !== "" && endDate !== "") {
+            const start = new Date(startDate);
+            const end = new Date(endDate);
+            end.setHours(23, 59, 59, 999);
+
+            match.DateMobilized = {
+                $gte: start,
+                $lte: end
+            };
+        }
+
+    const term = (searchTerm || search || "").trim();
+    if (term) {
+      match.$or = [
+        { skip_id: { $regex: term, $options: "i" } },
+        { WasteSource: { $regex: term, $options: "i" } },
+    
+      ];
     }
 
-    // Create date filter (ensure dates are in proper format)
-    const dateFilter = { 
-      lastUpdated: { 
-        $gte: new Date(startDate), 
-        $lte: new Date(endDate) 
-      } 
-    };
 
-    // Debug: Check how many documents match the filter
-    const matchingDocsCount = await skipsTracking.countDocuments(dateFilter);
-   
-
-    // Get total items (without date filter)
-    const totalItems = await skipsTracking.countDocuments();
-
-    // Improved aggregation pipeline
+    if (WasteStream && WasteStream !== "All") {
+      match.WasteStream = WasteStream;
+    }
+    console.log('these are the matching docs',match)
+    const matchingDocsCount = await skipsTracking.countDocuments(match);
+    console.log("these are the matches",matchingDocsCount)
     const aggregationResult = await skipsTracking.aggregate([
-      { $match: dateFilter },
-      { 
+      { $match: match },
+      {
         $project: {
           qtyInTonnes: {
             $switch: {
               branches: [
-                { 
-                  case: { $eq: ["$Quantity.unit", "kg"] }, 
-                  then: { $divide: ["$Quantity.value", 1000] } 
+                {
+                  case: { $eq: ["$Quantity.unit", "kg"] },
+                  then: { $divide: ["$Quantity.value", 1000] }
                 },
-                { 
-                  case: { $eq: ["$Quantity.unit", "tonne"] }, 
-                  then: "$Quantity.value" 
+                {
+                  case: { $eq: ["$Quantity.unit", "tonne"] },
+                  then: "$Quantity.value"
                 },
-                // Default case if unit is missing or different
                 { case: { $eq: ["$Quantity.unit", "ton"] }, then: "$Quantity.value" },
                 { case: { $eq: ["$Quantity.unit", "t"] }, then: "$Quantity.value" }
               ],
-              default: 0 // If unit not recognized
+              default: 0
             }
           }
         }
@@ -426,30 +447,28 @@ router.get('/stats', auth, async (req, res) => {
         $group: {
           _id: null,
           totalTonnes: { $sum: "$qtyInTonnes" },
-          count: { $sum: 1 } // Count of documents for verification
+          count: { $sum: 1 }
         }
       },
-      { 
-        $project: { 
-          _id: 0, 
-          totalTonnes: { $round: ["$totalTonnes", 2] }, // Round to 2 decimal places
-          count: 1 
-        } 
+      {
+        $project: {
+          _id: 0,
+          totalTonnes: { $round: ["$totalTonnes", 2] },
+          count: 1
+        }
       }
     ]);
 
     const totalTonnes = aggregationResult[0]?.totalTonnes || 0;
-  
-
-    const categories = await skipsTracking.distinct("WasteStream", dateFilter);
+    const categories = await skipsTracking.distinct("WasteStream", match);
 
     res.json({
       success: true,
       data: {
-        totalItems,
+        totalItems: matchingDocsCount,
         totalQuantity: totalTonnes,
         totalCategories: categories.length,
-        matchingItemsCount: aggregationResult[0]?.count || 0 // For debugging
+        matchingItemsCount: aggregationResult[0]?.count || 0
       }
     });
   } catch (err) {
