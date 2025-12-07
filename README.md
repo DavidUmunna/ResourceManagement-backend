@@ -42,13 +42,16 @@ Default base URL: `http://localhost:5000`
 ## API Docs
 - Swagger UI: `GET /api/docs`
 - OpenAPI JSON: `GET /api/docs.json`
-Docs are generated from JSDoc blocks in routes/controllers/models using `swagger-jsdoc` + `swagger-ui-express` (see `docs/swagger.js`).
+- Postman collection: see `postmanDocs/api-collection.json` in this repo.
+- Online Postman workspace: https://web.postman.co/workspace/e5bc1f52-e254-4f25-8d9d-18276e1a8d04
+Docs are generated from JSDoc blocks in routes/controllers/models using `swagger-jsdoc` + `swagger-ui-express` (see `docs/swagger.js`). The Postman docs mirror the current routes, including v1, v2, and AI endpoints.
 
 ## Key Modules
 - File tracking: `routes/v2/FileTracking.js`, `services/FileTracking.service.js`, `repositories/FileTracking.repository.js`, `Global_Functions/checkExpiry.js` (daily expiry cron).
 - Compliance logs: `models/ComplianceLog.js`, `routes/v2/ComplianceLog.js`, `controllers/v2.controllers/ComplianceLog.controllers.js`, `services/ComplianceLog.service.js`, `repositories/ComplianceLog.repository.js`.
 - Notifications: `controllers/v1.controllers/notification.js`, `emailnotification/emailNotification.js`, `pushNotifications/fileTrack.js`.
 - Auth: `middlewares/check-auth.js`, `routes/v1/signin.js`, `routes/v1/users.js`.
+- AI (Gemini): `ai/ai.routes.js`, `ai/ai.controller.js`, `ai/geminiClient.js`, `ai/ai.prompts.js`.
 
 ## Environment Variables
 Create a `.env` file with values like:

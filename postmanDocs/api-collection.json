@@ -1,0 +1,476 @@
+{
+  "info": {
+    "_postman_id": "9f7b1a6e-2e4e-4c3b-9f5a-7a1c0b8d2e1f",
+    "name": "Procurement API",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "description": "Postman collection for Procurement API (v1, v2, AI). Set `baseUrl` and `bearerToken` in the collection variables."
+  },
+  "item": [
+    {
+      "name": "Auth & Access",
+      "item": [
+        {
+          "name": "Check Access",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{bearerToken}}", "type": "text" }
+            ],
+            "url": { "raw": "{{baseUrl}}/api/access", "host": ["{{baseUrl}}"], "path": ["api", "access"] }
+          }
+        },
+        {
+          "name": "Signin (login)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"user@example.com\",\n  \"password\": \"password\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/api/signin", "host": ["{{baseUrl}}"], "path": ["api", "signin"] }
+          }
+        },
+        {
+          "name": "Signin (get current)",
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{baseUrl}}/api/signin", "host": ["{{baseUrl}}"], "path": ["api", "signin"] }
+          }
+        },
+        {
+          "name": "Signin (logout)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userId\": \"<userId>\",\n  \"deviceId\": \"<deviceId>\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/api/signin/logout", "host": ["{{baseUrl}}"], "path": ["api", "signin", "logout"] }
+          }
+        },
+        {
+          "name": "Admin Login",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"admin@example.com\",\n  \"password\": \"password\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/api/admin_user/login", "host": ["{{baseUrl}}"], "path": ["api", "admin_user", "login"] }
+          }
+        },
+        {
+          "name": "Admin Logout",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userId\": \"<userId>\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/api/admin_user/logout", "host": ["{{baseUrl}}"], "path": ["api", "admin_user", "logout"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Users",
+      "item": [
+        {
+          "name": "List Users",
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{baseUrl}}/api/users", "host": ["{{baseUrl}}"], "path": ["api", "users"] }
+          }
+        },
+        {
+          "name": "Get User by Email",
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{baseUrl}}/api/users/:email", "host": ["{{baseUrl}}"], "path": ["api", "users", ":email"] }
+          }
+        },
+        {
+          "name": "Roles & Departments",
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{baseUrl}}/api/users/roles%26departments", "host": ["{{baseUrl}}"], "path": ["api", "users", "roles%26departments"] }
+          }
+        },
+        {
+          "name": "Create User",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{bearerToken}}", "type": "text" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"name\": \"Jane Doe\",\n  \"email\": \"jane@example.com\",\n  \"password\": \"password\",\n  \"Department\": \"IT\",\n  \"role\": \"procurement_officer\"\n}" },
+            "url": { "raw": "{{baseUrl}}/api/users", "host": ["{{baseUrl}}"], "path": ["api", "users"] }
+          }
+        },
+        {
+          "name": "Request Password Reset",
+          "request": {
+            "method": "PUT",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"email\": \"user@example.com\"\n}" },
+            "url": { "raw": "{{baseUrl}}/api/users/reset", "host": ["{{baseUrl}}"], "path": ["api", "users", "reset"] }
+          }
+        },
+        {
+          "name": "Reset Password",
+          "request": {
+            "method": "PUT",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"token\": \"<token>\",\n  \"newPassword\": \"newPass\"\n}" },
+            "url": { "raw": "{{baseUrl}}/api/users/reset-password", "host": ["{{baseUrl}}"], "path": ["api", "users", "reset-password"] }
+          }
+        },
+        {
+          "name": "Update User",
+          "request": {
+            "method": "PUT",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{bearerToken}}", "type": "text" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"Department\": \"IT\",\n  \"name\": \"New Name\"\n}" },
+            "url": { "raw": "{{baseUrl}}/api/users/:id/updateuser", "host": ["{{baseUrl}}"], "path": ["api", "users", ":id", "updateuser"] }
+          }
+        },
+        {
+          "name": "Delete User",
+          "request": {
+            "method": "DELETE",
+            "url": { "raw": "{{baseUrl}}/api/users/:id", "host": ["{{baseUrl}}"], "path": ["api", "users", ":id"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Orders v1",
+      "item": [
+        {
+          "name": "List Orders",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{bearerToken}}", "type": "text" }],
+            "url": { "raw": "{{baseUrl}}/api/orders?page=1&limit=10", "host": ["{{baseUrl}}"], "path": ["api", "orders"], "query": [{ "key": "page", "value": "1" }, { "key": "limit", "value": "10" }] }
+          }
+        },
+        {
+          "name": "Create Order",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{bearerToken}}", "type": "text" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"supplier\": \"ABC Ltd\",\n  \"orderedBy\": \"John Doe\",\n  \"email\": \"john@example.com\",\n  \"products\": [{\"name\": \"Item A\", \"quantity\": 2, \"price\": 1000}],\n  \"urgency\": \"High\",\n  \"remarks\": \"Please expedite\",\n  \"Title\": \"Laptop Purchase\",\n  \"staff\": \"<staffId>\",\n  \"role\": \"procurement_officer\",\n  \"targetDepartment\": \"IT\"\n}" },
+            "url": { "raw": "{{baseUrl}}/api/orders", "host": ["{{baseUrl}}"], "path": ["api", "orders"] }
+          }
+        },
+        {
+          "name": "Export Orders",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"startDate\": \"2024-01-01\",\n  \"endDate\": \"2024-12-31\",\n  \"status\": \"All\",\n  \"filename\": \"orders\"\n}" },
+            "url": { "raw": "{{baseUrl}}/api/orders/export", "host": ["{{baseUrl}}"], "path": ["api", "orders", "export"] }
+          }
+        },
+        {
+          "name": "Approve Order",
+          "request": {
+            "method": "PUT",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{bearerToken}}", "type": "text" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"adminName\": \"Manager\",\n  \"comment\": \"Looks good\",\n  \"SignatureData\": \"<base64>\"\n}" },
+            "url": { "raw": "{{baseUrl}}/api/orders/:id/approve", "host": ["{{baseUrl}}"], "path": ["api", "orders", ":id", "approve"] }
+          }
+        },
+        {
+          "name": "Reject Order",
+          "request": {
+            "method": "PUT",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{bearerToken}}", "type": "text" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"adminName\": \"Manager\",\n  \"comment\": \"Not approved\"\n}" },
+            "url": { "raw": "{{baseUrl}}/api/orders/:id/reject", "host": ["{{baseUrl}}"], "path": ["api", "orders", ":id", "reject"] }
+          }
+        },
+        {
+          "name": "Complete Order",
+          "request": {
+            "method": "PUT",
+            "header": [{ "key": "Authorization", "value": "Bearer {{bearerToken}}", "type": "text" }],
+            "url": { "raw": "{{baseUrl}}/api/orders/:id/completed", "host": ["{{baseUrl}}"], "path": ["api", "orders", ":id", "completed"] }
+          }
+        },
+        {
+          "name": "Update Status",
+          "request": {
+            "method": "PUT",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{ \"status\": \"Pending\" }" },
+            "url": { "raw": "{{baseUrl}}/api/orders/:id", "host": ["{{baseUrl}}"], "path": ["api", "orders", ":id"] }
+          }
+        },
+        {
+          "name": "Delete Order",
+          "request": {
+            "method": "DELETE",
+            "url": { "raw": "{{baseUrl}}/api/orders/:id", "host": ["{{baseUrl}}"], "path": ["api", "orders", ":id"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Orders v2",
+      "item": [
+        {
+          "name": "List Orders",
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{baseUrl}}/api/v2/orders", "host": ["{{baseUrl}}"], "path": ["api", "v2", "orders"] }
+          }
+        },
+        {
+          "name": "Create Order",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{}" },
+            "url": { "raw": "{{baseUrl}}/api/v2/orders", "host": ["{{baseUrl}}"], "path": ["api", "v2", "orders"] }
+          }
+        },
+        {
+          "name": "Approve Order",
+          "request": {
+            "method": "PUT",
+            "url": { "raw": "{{baseUrl}}/api/v2/orders/:id/approve", "host": ["{{baseUrl}}"], "path": ["api", "v2", "orders", ":id", "approve"] }
+          }
+        },
+        {
+          "name": "Complete Order",
+          "request": {
+            "method": "PUT",
+            "url": { "raw": "{{baseUrl}}/api/v2/orders/:id/completed", "host": ["{{baseUrl}}"], "path": ["api", "v2", "orders", ":id", "completed"] }
+          }
+        },
+        {
+          "name": "Update Status",
+          "request": {
+            "method": "PUT",
+            "url": { "raw": "{{baseUrl}}/api/v2/orders/:id", "host": ["{{baseUrl}}"], "path": ["api", "v2", "orders", ":id"] }
+          }
+        },
+        {
+          "name": "Delete Order",
+          "request": {
+            "method": "DELETE",
+            "url": { "raw": "{{baseUrl}}/api/v2/orders/:id", "host": ["{{baseUrl}}"], "path": ["api", "v2", "orders", ":id"] }
+          }
+        },
+        {
+          "name": "Delete All Orders",
+          "request": {
+            "method": "DELETE",
+            "url": { "raw": "{{baseUrl}}/api/v2/orders", "host": ["{{baseUrl}}"], "path": ["api", "v2", "orders"] }
+          }
+        },
+        {
+          "name": "Export Orders",
+          "request": {
+            "method": "POST",
+            "url": { "raw": "{{baseUrl}}/api/v2/orders/export", "host": ["{{baseUrl}}"], "path": ["api", "v2", "orders", "export"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "File Tracking v2",
+      "item": [
+        { "name": "Create Track", "request": { "method": "POST", "url": { "raw": "{{baseUrl}}/api/v2/filetrack/createtrack", "host": ["{{baseUrl}}"], "path": ["api", "v2", "filetrack", "createtrack"] } } },
+        { "name": "List Tracks", "request": { "method": "GET", "url": { "raw": "{{baseUrl}}/api/v2/filetrack", "host": ["{{baseUrl}}"], "path": ["api", "v2", "filetrack"] } } },
+        { "name": "Update Track", "request": { "method": "PUT", "url": { "raw": "{{baseUrl}}/api/v2/filetrack/:id", "host": ["{{baseUrl}}"], "path": ["api", "v2", "filetrack", ":id"] } } },
+        { "name": "Paginated Tracks", "request": { "method": "GET", "url": { "raw": "{{baseUrl}}/api/v2/filetrack/paginatedtracks", "host": ["{{baseUrl}}"], "path": ["api", "v2", "filetrack", "paginatedtracks"] } } },
+        { "name": "Delete Track", "request": { "method": "DELETE", "url": { "raw": "{{baseUrl}}/api/v2/filetrack/:id", "host": ["{{baseUrl}}"], "path": ["api", "v2", "filetrack", ":id"] } } }
+      ]
+    },
+    {
+      "name": "Compliance Logs v2",
+      "item": [
+        { "name": "List Logs", "request": { "method": "GET", "url": { "raw": "{{baseUrl}}/api/v2/compliance/logs", "host": ["{{baseUrl}}"], "path": ["api", "v2", "compliance", "logs"] } } },
+        { "name": "Get Log by ID", "request": { "method": "GET", "url": { "raw": "{{baseUrl}}/api/v2/compliance/:id", "host": ["{{baseUrl}}"], "path": ["api", "v2", "compliance", ":id"] } } }
+      ]
+    },
+    {
+      "name": "Skip Tracking",
+      "item": [
+        { "name": "List Skips", "request": { "method": "GET", "url": { "raw": "{{baseUrl}}/api/skiptrack", "host": ["{{baseUrl}}"], "path": ["api", "skiptrack"] } } },
+        { "name": "Create Skip", "request": { "method": "POST", "url": { "raw": "{{baseUrl}}/api/skiptrack/create", "host": ["{{baseUrl}}"], "path": ["api", "skiptrack", "create"] } } },
+        { "name": "Update Skip", "request": { "method": "PUT", "url": { "raw": "{{baseUrl}}/api/skiptrack/:id", "host": ["{{baseUrl}}"], "path": ["api", "skiptrack", ":id"] } } },
+        { "name": "Delete Skip", "request": { "method": "DELETE", "url": { "raw": "{{baseUrl}}/api/skiptrack/:id", "host": ["{{baseUrl}}"], "path": ["api", "skiptrack", ":id"] } } },
+        { "name": "Stats", "request": { "method": "GET", "url": { "raw": "{{baseUrl}}/api/skiptrack/stats", "host": ["{{baseUrl}}"], "path": ["api", "skiptrack", "stats"] } } },
+        { "name": "Export Skips", "request": { "method": "POST", "url": { "raw": "{{baseUrl}}/api/skiptrack/export", "host": ["{{baseUrl}}"], "path": ["api", "skiptrack", "export"] } } },
+        { "name": "Categories", "request": { "method": "GET", "url": { "raw": "{{baseUrl}}/api/skiptrack/categories", "host": ["{{baseUrl}}"], "path": ["api", "skiptrack", "categories"] } } },
+        { "name": "Analytics", "request": { "method": "GET", "url": { "raw": "{{baseUrl}}/api/skiptrack/analytics", "host": ["{{baseUrl}}"], "path": ["api", "skiptrack", "analytics"] } } }
+      ]
+    },
+    {
+      "name": "Assets",
+      "item": [
+        { "name": "List Assets", "request": { "method": "GET", "url": { "raw": "{{baseUrl}}/api/assets", "host": ["{{baseUrl}}"], "path": ["api", "assets"] } } },
+        { "name": "Create Asset", "request": { "method": "POST", "url": { "raw": "{{baseUrl}}/api/assets", "host": ["{{baseUrl}}"], "path": ["api", "assets"] } } },
+        { "name": "Update Asset", "request": { "method": "PUT", "url": { "raw": "{{baseUrl}}/api/assets/:id", "host": ["{{baseUrl}}"], "path": ["api", "assets", ":id"] } } },
+        { "name": "Delete Asset", "request": { "method": "DELETE", "url": { "raw": "{{baseUrl}}/api/assets/:id", "host": ["{{baseUrl}}"], "path": ["api", "assets", ":id"] } } },
+        { "name": "Asset Stats", "request": { "method": "GET", "url": { "raw": "{{baseUrl}}/api/assets/stats", "host": ["{{baseUrl}}"], "path": ["api", "assets", "stats"] } } },
+        { "name": "Asset Categories", "request": { "method": "GET", "url": { "raw": "{{baseUrl}}/api/assets/categories", "host": ["{{baseUrl}}"], "path": ["api", "assets", "categories"] } } },
+        { "name": "Export Assets", "request": { "method": "POST", "url": { "raw": "{{baseUrl}}/api/assets/export", "host": ["{{baseUrl}}"], "path": ["api", "assets", "export"] } } }
+      ]
+    },
+    {
+      "name": "Inventory",
+      "item": [
+        { "name": "Inventory Categories", "request": { "method": "GET", "url": { "raw": "{{baseUrl}}/api/inventory/categories", "host": ["{{baseUrl}}"], "path": ["api", "inventory", "categories"] } } },
+        { "name": "List Inventory by Department", "request": { "method": "GET", "url": { "raw": "{{baseUrl}}/api/inventory/:Department", "host": ["{{baseUrl}}"], "path": ["api", "inventory", ":Department"] } } },
+        { "name": "Create Inventory Item", "request": { "method": "POST", "url": { "raw": "{{baseUrl}}/api/inventory", "host": ["{{baseUrl}}"], "path": ["api", "inventory"] } } },
+        { "name": "Update Inventory Quantity", "request": { "method": "PUT", "url": { "raw": "{{baseUrl}}/api/inventory/:id", "host": ["{{baseUrl}}"], "path": ["api", "inventory", ":id"] } } },
+        { "name": "Delete Inventory Item", "request": { "method": "DELETE", "url": { "raw": "{{baseUrl}}/api/inventory/:id", "host": ["{{baseUrl}}"], "path": ["api", "inventory", ":id"] } } }
+      ]
+    },
+    {
+      "name": "Inventory Logs",
+      "item": [
+        { "name": "Log Categories", "request": { "method": "GET", "url": { "raw": "{{baseUrl}}/api/inventorylogs/categories", "host": ["{{baseUrl}}"], "path": ["api", "inventorylogs", "categories"] } } },
+        { "name": "Create Log", "request": { "method": "POST", "url": { "raw": "{{baseUrl}}/api/inventorylogs/create", "host": ["{{baseUrl}}"], "path": ["api", "inventorylogs", "create"] } } },
+        { "name": "List Logs", "request": { "method": "GET", "url": { "raw": "{{baseUrl}}/api/inventorylogs", "host": ["{{baseUrl}}"], "path": ["api", "inventorylogs"] } } },
+        { "name": "Update Log", "request": { "method": "PUT", "url": { "raw": "{{baseUrl}}/api/inventorylogs/:id", "host": ["{{baseUrl}}"], "path": ["api", "inventorylogs", ":id"] } } },
+        { "name": "Delete Log", "request": { "method": "DELETE", "url": { "raw": "{{baseUrl}}/api/inventorylogs/:id", "host": ["{{baseUrl}}"], "path": ["api", "inventorylogs", ":id"] } } },
+        { "name": "Logs by Department", "request": { "method": "GET", "url": { "raw": "{{baseUrl}}/api/inventorylogs/:Department", "host": ["{{baseUrl}}"], "path": ["api", "inventorylogs", ":Department"] } } },
+        { "name": "Export Logs", "request": { "method": "POST", "url": { "raw": "{{baseUrl}}/api/inventorylogs/export", "host": ["{{baseUrl}}"], "path": ["api", "inventorylogs", "export"] } } }
+      ]
+    },
+    {
+      "name": "Company Data",
+      "item": [
+        { "name": "Get Company Data", "request": { "method": "GET", "url": { "raw": "{{baseUrl}}/api/companydata/company", "host": ["{{baseUrl}}"], "path": ["api", "companydata", "company"] } } },
+        { "name": "Create Company Data", "request": { "method": "POST", "url": { "raw": "{{baseUrl}}/api/companydata/CreateCompanyData", "host": ["{{baseUrl}}"], "path": ["api", "companydata", "CreateCompanyData"] } } }
+      ]
+    },
+    {
+      "name": "File Upload",
+      "item": [
+        { "name": "Upload Files", "request": { "method": "POST", "url": { "raw": "{{baseUrl}}/api/fileupload/create", "host": ["{{baseUrl}}"], "path": ["api", "fileupload", "create"] } } },
+        { "name": "Download File", "request": { "method": "GET", "url": { "raw": "{{baseUrl}}/api/fileupload/download/:fileId/:filename", "host": ["{{baseUrl}}"], "path": ["api", "fileupload", "download", ":fileId", ":filename"] } } },
+        { "name": "Get User Files", "request": { "method": "GET", "url": { "raw": "{{baseUrl}}/api/fileupload/:id", "host": ["{{baseUrl}}"], "path": ["api", "fileupload", ":id"] } } }
+      ]
+    },
+    {
+      "name": "Suppliers",
+      "item": [
+        { "name": "List Suppliers", "request": { "method": "GET", "url": { "raw": "{{baseUrl}}/api/suppliers", "host": ["{{baseUrl}}"], "path": ["api", "suppliers"] } } },
+        { "name": "Supplier Requests", "request": { "method": "GET", "url": { "raw": "{{baseUrl}}/api/suppliers/:supplier/requests", "host": ["{{baseUrl}}"], "path": ["api", "suppliers", ":supplier", "requests"] } } },
+        { "name": "Create Supplier", "request": { "method": "POST", "url": { "raw": "{{baseUrl}}/api/suppliers", "host": ["{{baseUrl}}"], "path": ["api", "suppliers"] } } }
+      ]
+    },
+    {
+      "name": "Products",
+      "item": [
+        { "name": "List Products", "request": { "method": "GET", "url": { "raw": "{{baseUrl}}/api/products", "host": ["{{baseUrl}}"], "path": ["api", "products"] } } },
+        { "name": "Create Product", "request": { "method": "POST", "url": { "raw": "{{baseUrl}}/api/products", "host": ["{{baseUrl}}"], "path": ["api", "products"] } } }
+      ]
+    },
+    {
+      "name": "Scheduling / Disbursement",
+      "item": [
+        { "name": "Approved Purchase Orders", "request": { "method": "GET", "url": { "raw": "{{baseUrl}}/api/scheduling/purchase-orders", "host": ["{{baseUrl}}"], "path": ["api", "scheduling", "purchase-orders"] } } },
+        { "name": "Create Disbursement Schedule", "request": { "method": "POST", "url": { "raw": "{{baseUrl}}/api/scheduling/disbursement-schedules", "host": ["{{baseUrl}}"], "path": ["api", "scheduling", "disbursement-schedules"] } } },
+        { "name": "Update Schedule", "request": { "method": "PUT", "url": { "raw": "{{baseUrl}}/api/scheduling/disbursement-schedules/:id", "host": ["{{baseUrl}}"], "path": ["api", "scheduling", "disbursement-schedules", ":id"] } } },
+        { "name": "List Schedules", "request": { "method": "GET", "url": { "raw": "{{baseUrl}}/api/scheduling/disbursement-schedules", "host": ["{{baseUrl}}"], "path": ["api", "scheduling", "disbursement-schedules"] } } },
+        { "name": "List Schedules Unpaged", "request": { "method": "GET", "url": { "raw": "{{baseUrl}}/api/scheduling/disbursement-schedules-unpaged", "host": ["{{baseUrl}}"], "path": ["api", "scheduling", "disbursement-schedules-unpaged"] } } },
+        { "name": "Get Schedule by ID", "request": { "method": "GET", "url": { "raw": "{{baseUrl}}/api/scheduling/disbursement-schedules/:id", "host": ["{{baseUrl}}"], "path": ["api", "scheduling", "disbursement-schedules", ":id"] } } },
+        { "name": "Review Schedule", "request": { "method": "PATCH", "url": { "raw": "{{baseUrl}}/api/scheduling/disbursement-schedules/:id/review", "host": ["{{baseUrl}}"], "path": ["api", "scheduling", "disbursement-schedules", ":id", "review"] } } },
+        { "name": "Export Schedule", "request": { "method": "GET", "url": { "raw": "{{baseUrl}}/api/scheduling/accounts/export-schedule/:id", "host": ["{{baseUrl}}"], "path": ["api", "scheduling", "accounts", "export-schedule", ":id"] } } },
+        { "name": "Submit Schedule", "request": { "method": "PATCH", "url": { "raw": "{{baseUrl}}/api/scheduling/disbursement-schedules/:id/submit", "host": ["{{baseUrl}}"], "path": ["api", "scheduling", "disbursement-schedules", ":id", "submit"] } } },
+        { "name": "Delete Schedule", "request": { "method": "DELETE", "url": { "raw": "{{baseUrl}}/api/scheduling/disbursement-schedules/:id", "host": ["{{baseUrl}}"], "path": ["api", "scheduling", "disbursement-schedules", ":id"] } } }
+      ]
+    },
+    {
+      "name": "Payment Details",
+      "item": [
+        { "name": "Get Payment Details", "request": { "method": "GET", "url": { "raw": "{{baseUrl}}/api/paymentdetails/:id", "host": ["{{baseUrl}}"], "path": ["api", "paymentdetails", ":id"] } } },
+        { "name": "Update Payment Details", "request": { "method": "PUT", "url": { "raw": "{{baseUrl}}/api/paymentdetails/:id", "host": ["{{baseUrl}}"], "path": ["api", "paymentdetails", ":id"] } } },
+        { "name": "Create Payment Details", "request": { "method": "POST", "url": { "raw": "{{baseUrl}}/api/paymentdetails/create", "host": ["{{baseUrl}}"], "path": ["api", "paymentdetails", "create"] } } },
+        { "name": "Delete Payment Detail", "request": { "method": "DELETE", "url": { "raw": "{{baseUrl}}/api/paymentdetails/:id", "host": ["{{baseUrl}}"], "path": ["api", "paymentdetails", ":id"] } } }
+      ]
+    },
+    {
+      "name": "Monitoring",
+      "item": [
+        { "name": "Create Log", "request": { "method": "POST", "url": { "raw": "{{baseUrl}}/api/monitoring", "host": ["{{baseUrl}}"], "path": ["api", "monitoring"] } } },
+        { "name": "List Logs", "request": { "method": "GET", "url": { "raw": "{{baseUrl}}/api/monitoring", "host": ["{{baseUrl}}"], "path": ["api", "monitoring"] } } },
+        { "name": "Stats", "request": { "method": "GET", "url": { "raw": "{{baseUrl}}/api/monitoring/stats", "host": ["{{baseUrl}}"], "path": ["api", "monitoring", "stats"] } } },
+        { "name": "Get Log by ID", "request": { "method": "GET", "url": { "raw": "{{baseUrl}}/api/monitoring/:id", "host": ["{{baseUrl}}"], "path": ["api", "monitoring", ":id"] } } },
+        { "name": "Cleanup Logs", "request": { "method": "DELETE", "url": { "raw": "{{baseUrl}}/api/monitoring/cleanup", "host": ["{{baseUrl}}"], "path": ["api", "monitoring", "cleanup"] } } }
+      ]
+    },
+    {
+      "name": "OTP",
+      "item": [
+        { "name": "Send OTP", "request": { "method": "POST", "url": { "raw": "{{baseUrl}}/api/otp/:id/send-otp", "host": ["{{baseUrl}}"], "path": ["api", "otp", ":id", "send-otp"] } } }
+      ]
+    },
+    {
+      "name": "Roles & Departments",
+      "item": [
+        { "name": "RBAC Lists", "request": { "method": "POST", "url": { "raw": "{{baseUrl}}/api/roles%26departments", "host": ["{{baseUrl}}"], "path": ["api", "roles%26departments"] } } }
+      ]
+    },
+    {
+      "name": "Activity Logs",
+      "item": [
+        { "name": "List Activities by Department", "request": { "method": "GET", "url": { "raw": "{{baseUrl}}/api/inventory/activities/:Department", "host": ["{{baseUrl}}"], "path": ["api", "inventory", "activities", ":Department"] } } },
+        { "name": "Delete Activity", "request": { "method": "DELETE", "url": { "raw": "{{baseUrl}}/api/inventory/activities/:id", "host": ["{{baseUrl}}"], "path": ["api", "inventory", "activities", ":id"] } } }
+      ]
+    },
+    {
+      "name": "Tasks",
+      "item": [
+        { "name": "Create Task", "request": { "method": "POST", "url": { "raw": "{{baseUrl}}/api/task", "host": ["{{baseUrl}}"], "path": ["api", "task"] } } },
+        { "name": "List Tasks", "request": { "method": "GET", "url": { "raw": "{{baseUrl}}/api/task", "host": ["{{baseUrl}}"], "path": ["api", "task"] } } },
+        { "name": "Tasks by User", "request": { "method": "GET", "url": { "raw": "{{baseUrl}}/api/task/:id", "host": ["{{baseUrl}}"], "path": ["api", "task", ":id"] } } },
+        { "name": "Update Task Status", "request": { "method": "PATCH", "url": { "raw": "{{baseUrl}}/api/task/:id", "host": ["{{baseUrl}}"], "path": ["api", "task", ":id"] } } },
+        { "name": "Delete Task", "request": { "method": "DELETE", "url": { "raw": "{{baseUrl}}/api/task/:id", "host": ["{{baseUrl}}"], "path": ["api", "task", ":id"] } } }
+      ]
+    },
+    {
+      "name": "Utility",
+      "item": [
+        { "name": "Test DB", "request": { "method": "GET", "url": { "raw": "{{baseUrl}}/api/test-db", "host": ["{{baseUrl}}"], "path": ["api", "test-db"] } } }
+      ]
+    },
+    {
+      "name": "AI (Gemini)",
+      "item": [
+        { "name": "Predict Maintenance", "request": { "method": "POST", "url": { "raw": "{{baseUrl}}/api/ai/predict-maintenance", "host": ["{{baseUrl}}"], "path": ["api", "ai", "predict-maintenance"] } } },
+        { "name": "Interpret Lab", "request": { "method": "POST", "url": { "raw": "{{baseUrl}}/api/ai/interpret-lab", "host": ["{{baseUrl}}"], "path": ["api", "ai", "interpret-lab"] } } },
+        { "name": "Optimize Logistics", "request": { "method": "POST", "url": { "raw": "{{baseUrl}}/api/ai/optimize-logistics", "host": ["{{baseUrl}}"], "path": ["api", "ai", "optimize-logistics"] } } },
+        { "name": "Generate Compliance Report", "request": { "method": "POST", "url": { "raw": "{{baseUrl}}/api/ai/generate-report", "host": ["{{baseUrl}}"], "path": ["api", "ai", "generate-report"] } } }
+      ]
+    }
+  ],
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:5000" },
+    { "key": "bearerToken", "value": "<token>" }
+  ]
+}

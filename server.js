@@ -40,6 +40,7 @@ const Otp=require("./routes/v1/OTP_route")
 const PaymentDetails=require("./routes/v1/PaymentRoute")
 const FileTrack=require("./routes/v2/FileTracking")
 const ComplianceLog=require("./routes/v2/ComplianceLog")
+const aiRoutes = require("./ai/ai.routes")
 const swaggerUi = require("swagger-ui-express");
 const swaggerSpec = require("./docs/swagger");
 // Initialize Express
@@ -105,6 +106,7 @@ app.use("/api/otp",Otp)
 app.use("/api/paymentdetails",PaymentDetails)
 app.use("/api/v2/filetrack",FileTrack)
 app.use("/api/v2/compliance",ComplianceLog)
+app.use("/api/ai", aiRoutes)
 app.use("/api/docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec))
 app.get("/api/docs.json", (req, res) => res.json(swaggerSpec));
 
