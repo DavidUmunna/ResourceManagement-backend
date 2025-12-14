@@ -12,7 +12,7 @@
   "type": "commonjs",
   "description": "",
   "dependencies": {
-    "@google/generative-ai": "^0.21.0",
+    "@google/generative-ai": "^0.24.1",
     "base64-url": "^2.3.3",
     "bcrypt": "^5.1.1",
     "bl": "^4.1.0",
