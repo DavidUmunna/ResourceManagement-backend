@@ -53,18 +53,6 @@ Docs are generated from JSDoc blocks in routes/controllers/models using `swagger
 - Auth: `middlewares/check-auth.js`, `routes/v1/signin.js`, `routes/v1/users.js`.
 - AI (Gemini): `ai/ai.routes.js`, `ai/ai.controller.js`, `ai/geminiClient.js`, `ai/ai.prompts.js`.
 
-## Environment Variables
-Create a `.env` file with values like:
-```env
-PORT=5000
-MONGO_URI=mongodb://127.0.0.1:27017/procurement
-JWT_SECRET=your_secret_key
-EMAIL_PASSWORD=...
-APP_PASS=...
-FRONTEND_BASED_URL=http://localhost:3000
-API_BASE_URL=http://localhost:5000
-```
-Other provider keys (Google Drive, Firebase, Resend, etc.) as required by their modules.
 
 ## Project Structure (abridged)
 ```
