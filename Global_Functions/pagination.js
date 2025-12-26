@@ -1,7 +1,7 @@
 // middlewares/pagination.js
-const getPagination = (req, defaultLimit = 10) => {
+const getPagination = (req, defaultLimit = 15) => {
     const page = Math.abs(parseInt(req.query.page)) || 1;
-    const limit = Math.min(Math.abs(parseInt(req.query.limit)) || defaultLimit, 1000);
+    const limit = Math.min(Math.abs(parseInt(req.query.limit)) || defaultLimit, 3500);
     const skip = (page - 1) * limit;
   
     return { page, limit, skip };

@@ -7,14 +7,14 @@ const router=express.Router()
 router.get("/", auth, async (req, res) => {
   try{
 
-    res.status(200).json({
+    return res.status(200).json({
       authenticated: true,
       message: "You have access to this protected route",
       user: {...req.user}
     });
   }catch(error){
     console.error("access route",error)
-    res.status(500).json({message:"Server Error"})
+    return res.status(500).json({message:"Server Error"})
   }
 });
 
