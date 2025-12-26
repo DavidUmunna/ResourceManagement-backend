@@ -8,6 +8,7 @@ const analytics=require("../../controllers/v1.controllers/Analytics")
 const router=express.Router()
 const ExcelJS = require('exceljs');
 const PDFDocument = require('pdfkit'); // for PDF export
+const { update } = require("../../services/tender.service")
 
 router.get("/", auth, async (req, res) => {
     try {
@@ -75,7 +76,7 @@ router.post("/export", auth, async (req, res) => {
     const { startDate, endDate, stream, fileName, fileFormat, WasteSource } = req.body;
 
     const query = {
-      createdAt: {
+      lastUpdated: {
         $gte: new Date(startDate),
         $lte: new Date(endDate)
       }
@@ -84,8 +85,11 @@ router.post("/export", auth, async (req, res) => {
     if (stream && stream !== 'All') {
       query.WasteStream = stream;
     }
-    if (WasteSource && WasteSource !=="All" ){
-      query.WasteSource=WasteSource
+    if (WasteSource && (WasteSource !=="All"|| WasteSource!=="all")) {
+      query.WasteSource=WasteSource.toUpperCase()
+    }
+    if(WasteSource && (WasteSource ==="All"|| WasteSource==="all")){
+      delete query.WasteSource
     }
    
     const skipData = await skipsTracking.find(query).lean();
