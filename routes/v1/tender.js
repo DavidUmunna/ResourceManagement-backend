@@ -7,6 +7,7 @@ const documentsController = require("../../controllers/documents.controller");
 const requirementsController = require("../../controllers/requirements.controller");
 const draftsController = require("../../controllers/drafts.controller");
 const complianceController = require("../../controllers/compliance.controller");
+const tenderUploadController = require("../../controllers/tenderUpload.controller");
 
 const router = express.Router();
 
@@ -15,6 +16,8 @@ router.post("/", auth, tenderController.create);
 router.get("/", auth, tenderController.list);
 router.get("/:id", auth, tenderController.get);
 router.patch("/:id", auth, tenderController.update);
+router.post("/upload", auth, upload.single("file"), tenderUploadController.upload);
+router.get("/:tenderId/checklist", auth, tenderUploadController.listChecklist);
 
 // Tender documents
 router.post("/:tenderId/documents", auth, upload.single("file"), documentsController.uploadTenderDoc);

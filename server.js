@@ -108,7 +108,7 @@ app.use("/api/otp",Otp)
 app.use("/api/paymentdetails",PaymentDetails)
 app.use("/api/v2/filetrack",FileTrack)
 app.use("/api/v2/compliance",ComplianceLog)
-app.use("/api/tender", TenderRoutes)
+app.use("/api/tenders", TenderRoutes)
 app.use("/api/ai", aiRoutes)
 app.use("/api/docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec))
 app.get("/api/docs.json", (req, res) => res.json(swaggerSpec));
@@ -124,7 +124,8 @@ app.use((req, res, next) => {
     "/api/scheduling/disbursement-schedules/:id",
     "/api/otp/",
     "api/v2/filetrack",
-    "/save-token"
+    "/save-token",
+    "/api/tenders/upload"
     
   ];
 
