@@ -24,7 +24,7 @@ const exportToExcelAndUpload = async (Id) => {
     // Fetch your data (replace with actual MongoDB query)
     const orders = await orderModel.find({}).populate("staff","name email").lean();
     
-   
+    //console.log("the orders",orders)
     // Process the orders to create your Excel data
     const formattedData = orders.map((order)=>{
       return{orderNumber: order.orderNumber || "N/A",

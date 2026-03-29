@@ -44,6 +44,13 @@ const TenderRoutes = require("./routes/v1/tender")
 const aiRoutes = require("./ai/ai.routes")
 const swaggerUi = require("swagger-ui-express");
 const swaggerSpec = require("./docs/swagger");
+const  createFeedbackRoutes  = require('./routes/v2/feedback.routes');
+const { FeedbackController } = require('./controllers/FeedbackController');
+const { FeedbackService } = require('./services/FeedbackService');
+const FeedbackRepository  = require('./repositories/FeedbackRepository');
+const { FeedbackValidator } = require('./services/validation/FeedbackValidator');
+const { EmailNotificationService } = require('./services/NotificationService');
+const { errorHandler } = require('./middlewares/errorHandler');
 // Initialize Express
 const app = express();
 
@@ -110,9 +117,40 @@ app.use("/api/v2/filetrack",FileTrack)
 app.use("/api/v2/compliance",ComplianceLog)
 app.use("/api/tenders", TenderRoutes)
 app.use("/api/ai", aiRoutes)
+
+
+console.log('Creating repository...');
+const feedbackRepository = new FeedbackRepository();
+
+console.log('Creating validator...');
+const feedbackValidator = new FeedbackValidator();
+
+console.log('Creating notification service...');
+const notificationService = new EmailNotificationService();
+
+console.log('Creating service...');
+const feedbackService = new FeedbackService(
+  feedbackRepository,
+  feedbackValidator,
+  notificationService
+);
+
+console.log('Creating controller...');
+const feedbackController = new FeedbackController(feedbackService);
+
+// Verify controller methods
+console.log('Controller methods:', Object.getOwnPropertyNames(Object.getPrototypeOf(feedbackController)));
+console.log('createFeedback exists:', typeof feedbackController.createFeedback === 'function');
+console.log('getAllFeedback exists:', typeof feedbackController.getAllFeedback === 'function');
+
+
+// Routes
+console.log('Setting up routes...');
+const feedbackRoutes = createFeedbackRoutes(feedbackController);
+app.use('/api/feedback', feedbackRoutes);
 app.use("/api/docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec))
 app.get("/api/docs.json", (req, res) => res.json(swaggerSpec));
-
+app.use(errorHandler);
 
 app.use((req, res, next) => {
   const csrfExcludedPaths = [
@@ -126,7 +164,6 @@ app.use((req, res, next) => {
     "api/v2/filetrack",
     "/save-token",
     "/api/tenders/upload"
-    
   ];
 
   const isUnsafeMethod = ["POST", "PUT", "DELETE"].includes(req.method);

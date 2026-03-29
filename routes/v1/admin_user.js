@@ -56,14 +56,14 @@ router.post('/login', loginRateLimiter, async (req, res) => {
       'EX',
       1200 // 15 minutes TTL
     );
-    console.log("session  Id",sessionId)
+    console.log("session  Id :"+user_data.name+" :"+sessionId)
     res.cookie("sessionId", sessionId, {
       httpOnly: true,
       maxAge: 20 * 60 * 1000, // 15 minutes
       sameSite: process.env.NODE_ENV === "production" ? "None" : "Lax",
       secure: process.env.NODE_ENV === "production"
     });
-
+  
     res.json({ success: true,
        message: "Login successful",
        user:{

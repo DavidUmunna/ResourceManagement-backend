@@ -278,9 +278,9 @@ router.get("/:id", auth,async (req, res) => {
     
 
     // Fetch user orders
-   const [total, userorders] = await Promise.all([
-           PurchaseOrder.countDocuments({staff:id}),
-           PurchaseOrder.find({staff:id})
+  const [total, userorders] = await Promise.all([
+            PurchaseOrder.countDocuments({staff:id}),
+            PurchaseOrder.find({staff:id})
           .sort({ createdAt: -1 })
           .skip(skip)
           .limit(limit)
@@ -288,7 +288,7 @@ router.get("/:id", auth,async (req, res) => {
           .populate("PendingApprovals.Reviewer")
           .populate("EditedBy")
     ]);
-   
+  
     const response=(userorders.map((order=>{
       const plainOrder = order.toObject();
       /*if(!global.includes(req.user.role)){
@@ -301,7 +301,7 @@ router.get("/:id", auth,async (req, res) => {
       return res.status(404).json({ message: "No orders found for this user" });
     }
 
-   res.json({
+    res.json({
       data: response,
       Pagination: getPagingData(total, page, limit)
     });
@@ -392,7 +392,7 @@ router.post("/", auth, async (req, res) => {
     //IncomingRequest(new_Request._id)
     ValidatePendingApprovals(new_Request._id)
     
-    const exportgoogledrive=await exportToExcelAndUpload(newOrder._id);  
+    //const exportgoogledrive=await exportToExcelAndUpload(newOrder._id);  
 
     res.status(200).json({success:true, newOrder });
   } catch (error) {
@@ -852,8 +852,11 @@ router.put("/:id/approve", auth, async (req, res) => {
   const ip = req.headers["x-forwarded-for"] || req.socket.remoteAddress;
   const parser = new UAParser(req.headers["user-agent"]);
   const deviceInfo = parser.getResult();
- 
+  
+
+
   if (!user.canApprove) {
+    
     return res.status(403).json({ message: 'You are not authorized to approve requests' });
   }
 

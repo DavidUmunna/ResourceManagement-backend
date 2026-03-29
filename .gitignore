@@ -15,3 +15,4 @@ Haldenbackend.log
 ecosystem.config.js
 tempUploads
 haldenerp-firebase-adminsdk.json
+controllertests/

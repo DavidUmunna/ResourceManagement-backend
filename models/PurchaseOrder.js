@@ -36,7 +36,8 @@ const PurchaseOrderSchema = new Schema({
     type:Schema.Types.ObjectId,
     ref:"File"
 
-  },
+  }
+  ,
   EditedBy:{
     type:Schema.Types.ObjectId,
     ref:"user"
