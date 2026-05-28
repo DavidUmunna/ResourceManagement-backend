@@ -54,32 +54,33 @@ const { errorHandler } = require('./middlewares/errorHandler');
 // Initialize Express
 const app = express();
 
+// CORS must be first — before helmet and any other middleware
+// so that preflight OPTIONS requests get the correct headers
+const corsOptions = {
+  origin: [
+    "http://localhost:3000",
+    "http://127.0.0.1:5000",
+    "http://localhost:3001",
+    "http://127.0.0.1:3000",
+    "http://localhost:3002",
+    "http://localhost:5000",
+    "http://192.168.137.108:3000",
+    "http://192.168.137.108:5000",
+    "https://erp.haldengroup.ng",
+  ],
+  credentials: true,
+};
+app.use(cors(corsOptions));
+
 
 // Middleware
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
-app.use(helmet());
+app.use(helmet({
+  crossOriginResourcePolicy: { policy: "cross-origin" },
+}));
 const csrfProtection=csrf({cookie:true})
-
-// CORS setup
-app.use(
-  cors({
-  origin: [
-  "http://localhost:3000",
-  "http://127.0.0.1:5000",
-  "http://localhost:3001",
-  "http://127.0.0.1:3000",
-  "http://localhost:3001",
-  "http://localhost:3002",
-  "http://localhost:5000",
-  "http://192.168.137.108:3000",
-  "http://192.168.137.108:5000",
-  "https://erp.haldengroup.ng"
-  ],
-    credentials: true,
-  })
-);
 app.use(testDBRoute);
 app.use(cspmiddleware)
 
@@ -240,7 +241,7 @@ app.post('/csp-report',async(req,res)=>{
 // default response is already handled by GET "/" above
 
 // Start server
-const PORT = process.env.PORT || 5001;
+const PORT = process.env.PORT || 3001;
 app.listen(PORT, "0.0.0.0", () =>
   console.log(`🚀 Server running on port ${PORT}`)
 );

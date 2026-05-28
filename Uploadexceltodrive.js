@@ -1,6 +1,6 @@
 const { google } = require('googleapis');
 const fs = require('fs');
-const XLSX = require('xlsx');
+const ExcelJS = require('exceljs');
 const path = require('path');
 const readline = require('readline');
 const orderModel = require("./models/PurchaseOrder")
@@ -45,15 +45,22 @@ const exportToExcelAndUpload = async (Id) => {
       }))
     );
     // Create the Excel file in memory
-    const wb = XLSX.utils.book_new();
-    const ws = XLSX.utils.json_to_sheet(formattedData);
-    const ordersworksheet=XLSX.utils.json_to_sheet(productData)
-   
-    XLSX.utils.book_append_sheet(wb, ws, "orders");
-    XLSX.utils.book_append_sheet(wb, ordersworksheet, "Request_data");
+    const workbook = new ExcelJS.Workbook();
+
+    const ws = workbook.addWorksheet('orders');
+    if (formattedData.length > 0) {
+      ws.columns = Object.keys(formattedData[0]).map(key => ({ header: key, key }));
+      ws.addRows(formattedData);
+    }
+
+    const ordersworksheet = workbook.addWorksheet('Request_data');
+    if (productData.length > 0) {
+      ordersworksheet.columns = Object.keys(productData[0]).map(key => ({ header: key, key }));
+      ordersworksheet.addRows(productData);
+    }
 
     // Write the workbook to a buffer (not to a file)
-    const excelBuffer = XLSX.write(wb, { bookType: "xlsx", type: "buffer" });
+    const excelBuffer = await workbook.xlsx.writeBuffer();
 
     // Authenticate to Google Drive
     const drive = await authenticateGoogleDrive();
