@@ -17,6 +17,7 @@ jobs:
           host: 194.163.137.35
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
+          passphrase: ${{ secrets.SSH_PASSPHRASE }}
           script: |
             cd /root/Halden/procurement_api
             git pull origin main
