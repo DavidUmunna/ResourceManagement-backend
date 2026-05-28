@@ -22,4 +22,4 @@ jobs:
             cd /root/Halden/procurement_api
             git pull origin main
             npm install --production
-            pm2 restart procurement_api
+            pm2 restart Halden_backend
