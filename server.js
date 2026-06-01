@@ -3,7 +3,6 @@
 const path = require("path");
 const csrf=require("csurf")
 // Third-party packages
-const fs=require("fs")
 const express = require("express");
 const cors = require("cors");
 const cookieParser = require("cookie-parser");
@@ -13,6 +12,8 @@ require("./Global_Functions/checkExpiry");
 const connectDB = require("./db");
 const cspmiddleware=require("./middlewares/csp")
 const auth=require("./middlewares/check-auth")
+const redis = require("redis");
+
 // Route imports
 const UserSchema=require('./models/users_')
 const uploadRoutes = require("./routes/v1/fileupload");
@@ -51,6 +52,8 @@ const FeedbackRepository  = require('./repositories/FeedbackRepository');
 const { FeedbackValidator } = require('./services/validation/FeedbackValidator');
 const { EmailNotificationService } = require('./services/NotificationService');
 const { errorHandler } = require('./middlewares/errorHandler');
+const { check } = require("./controllers/compliance.controller");
+const { handleCspReport } = require("./controllers/cspReport.controller");
 // Initialize Express
 const app = express();
 
@@ -74,7 +77,9 @@ app.use(cors(corsOptions));
 
 
 // Middleware
-app.use(express.json());
+app.use(express.json({
+  type: ["application/json", "application/csp-report", "application/reports+json"],
+}));
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
 app.use(helmet({
@@ -83,7 +88,6 @@ app.use(helmet({
 const csrfProtection=csrf({cookie:true})
 app.use(testDBRoute);
 app.use(cspmiddleware)
-
 
 // Static file serving
 app.use("/uploads", express.static(path.join("uploads")));
@@ -162,27 +166,48 @@ app.use((req, res, next) => {
     "/api/disbursement-schedules/:id/submit",
     "/api/scheduling/disbursement-schedules/:id",
     "/api/otp/",
-    "api/v2/filetrack",
+    "/api/v2/filetrack",
+    "/api/save-token",
+    "/api/savetoken",
     "/save-token",
-    "/api/tenders/upload"
+    "/api/tenders/upload",
+    "/csp-report",
+    "/csp-report/",
+    "/save-token",
   ];
 
-  const isUnsafeMethod = ["POST", "PUT", "DELETE"].includes(req.method);
-  const isExcludedPath = csrfExcludedPaths.includes(req.path);
+  const isExcludedPath = csrfExcludedPaths.some((pathPattern) => {
+    if (!pathPattern.includes(":")) {
+      return req.path === pathPattern;
+    }
 
-
+    // Support route patterns with params (e.g. /api/items/:id)
+    const regexPattern = `^${pathPattern.replace(/:[^/]+/g, "[^/]+")}$`;
+    return new RegExp(regexPattern).test(req.path);
+  });
+  
+  const isUnsafeMethod = ["POST", "PUT", "PATCH", "DELETE"].includes(req.method);
+  
+  
   if (isUnsafeMethod && !isExcludedPath) {
     try {
-    return csrfProtection(req, res, next);
-  } catch (err) {
-    console.error('CSRF check failed:', err.message);
-    return res.status(403).json({ error: 'Forbidden - CSRF validation failed' });
-  }
+      return csrfProtection(req, res, next);
+    } catch (err) {
+      console.error('CSRF check failed:', err.message);
+      return res.status(403).json({ error: 'Forbidden - CSRF validation failed' });
+    }
   }
   next();
 })
 
-app.get("/api/csrf-token", csrfProtection, (req, res) => {
+const redisClient = redis.createClient();
+redisClient.connect().catch(console.error); 
+app.get("/api/csrf-token", csrfProtection, async (req, res) => {
+  const sessionId = req.cookies.sessionId;
+  const checkSessionId = await redisClient.get(`session:${sessionId}`);
+  if (!checkSessionId) {
+    return res.status(401).json({ message: "Unauthorized" });
+  }
   res.cookie("XSRF-TOKEN", req.csrfToken());
 
   return res.status(200).json({ message: "CSRF token set" });
@@ -198,11 +223,12 @@ app.get("/", (req, res) => {
   }
 });
 
-//Notification-token
-app.post('/save-token',auth, async(req, res) => {
+// Notification-token
+const saveNotificationTokenHandler = async (req, res) => {
   try{
 
     const { currentToken } = req.body;
+    console.log("Received token:", currentToken);
     
     const {userId}=req.user
     if (!currentToken) {
@@ -222,21 +248,12 @@ app.post('/save-token',auth, async(req, res) => {
     console.error("notification error",error)
 
   }
-});
+};
 
-app.post('/csp-report',async(req,res)=>{
-  try{
-    const report=JSON.stringify(req.body,null,2);
-    const logfile=path.join(__dirname,"cspreports.txt")
+app.post('/api/save-token', auth, saveNotificationTokenHandler);
 
-    fs.appendFile(logfile,report,'\n\n',(err)=>{
-      if(err) console.error('error writing csp-report',err)
-    })
-  res.status(204).end()
-  }catch(error){
-    console.log("csp error",error)
-  }
-})
+
+app.post('/csp-report', handleCspReport)
 
 // default response is already handled by GET "/" above
 

@@ -28,7 +28,7 @@ const poAnalyticsController=require("../../controllers/v1.controllers/RequestsAn
 const twoFactorVerify = require("../../middlewares/TwoFactorVerify");
 const UAParser = require("ua-parser-js");
 const { CreateSignature } = require("../../controllers/v1.controllers/Signature_Controllers");
-
+const { sendPushNotification } = require("../../Global_Functions/firebasePushNotification");
 
 router.get("/reviewed",auth,RequestController.ReviewedRequests)
 router.delete("/:id/staffresponse",auth,RequestController.DeleteStaffResponse)
@@ -352,22 +352,31 @@ router.get('/department/all', auth,async (req, res) => {
 // Create a new purchase Request
 router.post("/", auth, async (req, res) => {
   try {
-    const { supplier, orderedBy, products,email,filenames,
-       urgency,remarks,Title,staff,role,targetDepartment } = req.body;
-    
-   
+    const {
+      supplier,
+      orderedBy,
+      products,
+      email,
+      filenames,
+      urgency,
+      remarks,
+      Title,
+      staff,
+      role,
+      targetDepartment
+    } = req.body;
 
-    // Ensure products is an array and destructure its fields
     if (!Array.isArray(products)) {
       return res.status(400).json({ error: "Products must be an array" });
     }
 
-   
-    const User=await user.findOne({email})
+    const User = await user.findOne({ email });
+
     if (!User) {
       return res.status(404).json({ error: "User not found" });
     }
-    const Department=User.Department
+
+    const Department = User.Department;
 
     const newOrder = new PurchaseOrder({
       supplier,
@@ -381,24 +390,55 @@ router.post("/", auth, async (req, res) => {
       Department,
       staff,
       role,
-      fileRefs: req.body.fileRefs,    
+      fileRefs: req.body.fileRefs,
       targetDepartment
     });
-    
-    
-    const new_Request=await newOrder.save();
-    //const PopulatedNewRequest=new_Request.populate("staff")
-  
-    //IncomingRequest(new_Request._id)
-    ValidatePendingApprovals(new_Request._id)
-    
-    //const exportgoogledrive=await exportToExcelAndUpload(newOrder._id);  
 
-    res.status(200).json({success:true, newOrder });
+    const new_Request = await newOrder.save();
+
+    await ValidatePendingApprovals(new_Request._id);
+
+    const usersToNotify = await user.find({
+      $or: [
+        { role: { $in: ["global_admin", "accounts"] } },
+        { Department: targetDepartment || Department }
+      ]
+    }).select("NotificationToken name Department");
+
+
+    const tokens = usersToNotify
+      .flatMap((u) => {
+        console.log("user to notify",u)
+        if (Array.isArray(u.NotificationToken)) return u.NotificationToken;
+        if (u.NotificationToken) return [u.NotificationToken];
+        return [];
+      })
+      .filter(Boolean);
+
+   await Promise.allSettled(
+  tokens.map((token) =>
+    sendPushNotification(
+      token,
+      "New request submitted",
+      `${Title || "A new request"} was created by ${User.name || email}`,
+      {
+        type: "new_request",
+        orderId: String(new_Request._id),
+        department: String(targetDepartment || Department || ""),
+      }
+    )
+  )
+);
+
+    res.status(200).json({ success: true, newOrder: new_Request });
   } catch (error) {
     console.error("Error creating purchase order:", error);
-    res.status(500).json({success:false, message: "Error creating purchase order", error });
-  };
+    res.status(500).json({
+      success: false,
+      message: "Error creating purchase order",
+      error
+    });
+  }
 });
 
 router.post("/export", async (req, res) => {
