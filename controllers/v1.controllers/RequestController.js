@@ -53,21 +53,26 @@ const GetOverallMonthlyRequests = async (req, res) => {
             $gte: startOfDay,
             $lte: endOfDay,
         };
-        const Requests = await PurchaseOrder.find(query).populate("staff")
+        const Requests = await PurchaseOrder.find(query).populate("staff", "name email Department -password").lean()
+
+        
         const filteredRequests=Requests.filter((request)=>{
-            const plainRequest=request.toObject()
+            
+            plainRequest=JSON.stringify(request, null, 2)
             if(Department){
-                return plainRequest.staff.Department===Department
+                return request.staff?.Department===Department
             }
             return true
         }
         
         )
+       
+        
         const totalDailyRequests=filteredRequests.length
  
 
         res.status(200).json({
-            message: "Total requests for today",
+            message: "Total requests for the month",
             total: filteredRequests.length,
             data: Department? filteredRequests:Requests
         });

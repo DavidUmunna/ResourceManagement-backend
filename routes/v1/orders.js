@@ -34,7 +34,7 @@ router.get("/reviewed",auth,RequestController.ReviewedRequests)
 router.delete("/:id/staffresponse",auth,RequestController.DeleteStaffResponse)
 router.get("/staffresponses",auth,RequestController.GetStaffResponses)
 router.get('/analytics/purchase-orders', poAnalyticsController.getPOAnalytics);
-router.get('/DailyRequests',auth,GetOverallMonthlyRequests)
+router.get('/monthlyrequests',auth,GetOverallMonthlyRequests)
 router.get("/StaffRequests",MonthlyStaffRequest)
 // Specialized analytics endpoints
 router.get('/analytics/purchase-orders/status-distribution', poAnalyticsController.getPOStatusDistribution);
