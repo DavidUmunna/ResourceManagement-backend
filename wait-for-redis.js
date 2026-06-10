@@ -4,8 +4,8 @@ const { spawn } = require("child_process");
 
 const REDIS_HOST = "127.0.0.1";
 const REDIS_PORT = 6379;
-const MAX_RETRIES = 10;
-const RETRY_DELAY_MS = 2000;
+const MAX_RETRIES = 4;
+const RETRY_DELAY_MS = 1000;
 const NTFY_TOPIC = process.env.NTFY_TOPIC;
 
 async function sendAlert(message) {
