@@ -1,0 +1,18 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx jest *)",
+      "Read(//Users/admin/**)",
+      "Bash(mkdir -p \"/Users/admin/ResouceManagement-Frontend/src/pages/POAnalytics\")"
+    ],
+    "additionalDirectories": [
+      "/Users/admin/ResouceManagement-Frontend/src/services",
+      "/Users/admin/ResouceManagement-Frontend/src/pages/Leave/AdminLeavePanel",
+      "/Users/admin/ResouceManagement-Frontend/test",
+      "/Users/admin/ResouceManagement-Frontend/src/pages/Leave",
+      "/Users/admin/ResouceManagement-Frontend/src/pages",
+      "/Users/admin/ResouceManagement-Frontend/src/constants",
+      "/Users/admin/ResouceManagement-Frontend/src"
+    ]
+  }
+}

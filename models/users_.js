@@ -20,10 +20,15 @@ const UserSchema = new Schema({
   resetToken:String,
   resetTokenExpiration:Date
   
-}, { timestamps: true },{strict:true});
+}, { timestamps: true, toJSON: { virtuals: true }, toObject: { virtuals: true } });
 
-
-
+// Virtual reverse-reference: populate a user's leave balances across years
+// Usage: User.findById(id).populate('leaveBalances')
+UserSchema.virtual('leaveBalances', {
+  ref: 'LeaveBalance',
+  localField: '_id',
+  foreignField: 'user',
+});
 
 
 module.exports=model("user", UserSchema);

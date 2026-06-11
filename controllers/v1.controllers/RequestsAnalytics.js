@@ -241,7 +241,7 @@ exports.getPOUrgencyStats = async (req, res) => {
         }
       }
     ]);
-    
+
     res.json({
       success: true,
       data: stats
@@ -252,5 +252,285 @@ exports.getPOUrgencyStats = async (req, res) => {
       success: false,
       message: 'Failed to retrieve urgency statistics'
     });
+  }
+};
+
+// ── Shared helpers ────────────────────────────────────────────────────────────
+
+// Computes total value of an order: sum of (price * quantity) across all products
+const totalValueExpr = {
+  $sum: {
+    $map: {
+      input: '$products',
+      as: 'p',
+      in: { $multiply: ['$$p.price', '$$p.quantity'] },
+    },
+  },
+};
+
+function buildDateMatch(startDate, endDate) {
+  if (!startDate && !endDate) return null;
+  const range = {};
+  if (startDate) range.$gte = new Date(startDate);
+  if (endDate)   range.$lte = new Date(endDate);
+  return { createdAt: range };
+}
+
+// ── GET /analytics/purchase-orders/by-department ─────────────────────────────
+// Spend and order count grouped by the requesting staff member's department.
+// Query params: startDate, endDate, status
+exports.getSpendByDepartment = async (req, res) => {
+  try {
+    const { startDate, endDate, status } = req.query;
+
+    const pipeline = [];
+
+    // 1. Optional date + status pre-filter
+    const dateMatch = buildDateMatch(startDate, endDate);
+    const preMatch = { ...(dateMatch || {}), ...(status ? { status } : {}) };
+    if (Object.keys(preMatch).length) pipeline.push({ $match: preMatch });
+
+    // 2. Join to users to get the requesting department
+    pipeline.push({
+      $lookup: {
+        from: 'users',
+        localField: 'staff',
+        foreignField: '_id',
+        as: '_staffUser',
+      },
+    });
+    pipeline.push({
+      $addFields: {
+        _department: { $ifNull: [{ $arrayElemAt: ['$_staffUser.Department', 0] }, 'Unknown'] },
+      },
+    });
+
+    // 3. Group by department
+    pipeline.push({
+      $group: {
+        _id: '$_department',
+        totalOrders: { $sum: 1 },
+        totalSpend: { $sum: totalValueExpr },
+        avgOrderValue: { $avg: totalValueExpr },
+        byStatus: {
+          $push: '$status',
+        },
+      },
+    });
+
+    // 4. Unpack status array into counts
+    pipeline.push({
+      $project: {
+        _id: 0,
+        department: '$_id',
+        totalOrders: 1,
+        totalSpend: { $round: ['$totalSpend', 2] },
+        avgOrderValue: { $round: ['$avgOrderValue', 2] },
+        statusBreakdown: {
+          $arrayToObject: {
+            $map: {
+              input: { $setUnion: ['$byStatus', []] },
+              as: 's',
+              in: {
+                k: '$$s',
+                v: {
+                  $size: {
+                    $filter: { input: '$byStatus', as: 'x', cond: { $eq: ['$$x', '$$s'] } },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    });
+
+    pipeline.push({ $sort: { totalSpend: -1 } });
+
+    const data = await PurchaseOrder.aggregate(pipeline);
+
+    const grandTotal = data.reduce((s, d) => s + d.totalSpend, 0);
+
+    return res.json({
+      success: true,
+      data: {
+        byDepartment: data,
+        grandTotalSpend: Math.round(grandTotal * 100) / 100,
+        filters: { startDate, endDate, status },
+      },
+    });
+  } catch (error) {
+    console.error('getSpendByDepartment error:', error);
+    return res.status(500).json({ success: false, message: 'Failed to retrieve department spend' });
+  }
+};
+
+// ── GET /analytics/purchase-orders/by-status ─────────────────────────────────
+// Spend and order count grouped by approval status.
+// Query params: startDate, endDate, department
+exports.getSpendByStatus = async (req, res) => {
+  try {
+    const { startDate, endDate, department } = req.query;
+
+    const pipeline = [];
+
+    const dateMatch = buildDateMatch(startDate, endDate);
+    if (dateMatch) pipeline.push({ $match: dateMatch });
+
+    // Join users when filtering by department
+    if (department) {
+      pipeline.push({
+        $lookup: {
+          from: 'users',
+          localField: 'staff',
+          foreignField: '_id',
+          as: '_staffUser',
+        },
+      });
+      pipeline.push({
+        $match: { '_staffUser.Department': department },
+      });
+    }
+
+    pipeline.push({
+      $group: {
+        _id: '$status',
+        totalOrders: { $sum: 1 },
+        totalSpend: { $sum: totalValueExpr },
+        avgOrderValue: { $avg: totalValueExpr },
+      },
+    });
+
+    pipeline.push({
+      $project: {
+        _id: 0,
+        status: '$_id',
+        totalOrders: 1,
+        totalSpend: { $round: ['$totalSpend', 2] },
+        avgOrderValue: { $round: ['$avgOrderValue', 2] },
+      },
+    });
+
+    // Preserve a consistent status order
+    const STATUS_ORDER = ['Pending', 'Approved', 'Completed', 'Rejected', 'More Information', 'Awaiting Funding'];
+    pipeline.push({
+      $sort: {
+        status: 1,
+      },
+    });
+
+    const data = await PurchaseOrder.aggregate(pipeline);
+    data.sort((a, b) => STATUS_ORDER.indexOf(a.status) - STATUS_ORDER.indexOf(b.status));
+
+    const approvedSpend = data
+      .filter((d) => ['Approved', 'Completed'].includes(d.status))
+      .reduce((s, d) => s + d.totalSpend, 0);
+
+    return res.json({
+      success: true,
+      data: {
+        byStatus: data,
+        approvedSpend: Math.round(approvedSpend * 100) / 100,
+        filters: { startDate, endDate, department },
+      },
+    });
+  } catch (error) {
+    console.error('getSpendByStatus error:', error);
+    return res.status(500).json({ success: false, message: 'Failed to retrieve status spend' });
+  }
+};
+
+// ── GET /analytics/purchase-orders/spend-summary ─────────────────────────────
+// Single dashboard endpoint: overall totals + breakdown by department + by status.
+// Query params: startDate, endDate
+exports.getSpendSummary = async (req, res) => {
+  try {
+    const { startDate, endDate } = req.query;
+    const dateMatch = buildDateMatch(startDate, endDate);
+    const matchStage = dateMatch ? [{ $match: dateMatch }] : [];
+
+    // Run three aggregations in parallel
+    const [overall, byDept, byStatus] = await Promise.all([
+      // Overall totals
+      PurchaseOrder.aggregate([
+        ...matchStage,
+        {
+          $group: {
+            _id: null,
+            totalOrders: { $sum: 1 },
+            totalSpend: { $sum: totalValueExpr },
+            avgOrderValue: { $avg: totalValueExpr },
+          },
+        },
+      ]),
+
+      // By department (join users)
+      PurchaseOrder.aggregate([
+        ...matchStage,
+        {
+          $lookup: {
+            from: 'users',
+            localField: 'staff',
+            foreignField: '_id',
+            as: '_staffUser',
+          },
+        },
+        {
+          $group: {
+            _id: { $ifNull: [{ $arrayElemAt: ['$_staffUser.Department', 0] }, 'Unknown'] },
+            totalOrders: { $sum: 1 },
+            totalSpend: { $sum: totalValueExpr },
+          },
+        },
+        {
+          $project: {
+            _id: 0,
+            department: '$_id',
+            totalOrders: 1,
+            totalSpend: { $round: ['$totalSpend', 2] },
+          },
+        },
+        { $sort: { totalSpend: -1 } },
+      ]),
+
+      // By status
+      PurchaseOrder.aggregate([
+        ...matchStage,
+        {
+          $group: {
+            _id: '$status',
+            totalOrders: { $sum: 1 },
+            totalSpend: { $sum: totalValueExpr },
+          },
+        },
+        {
+          $project: {
+            _id: 0,
+            status: '$_id',
+            totalOrders: 1,
+            totalSpend: { $round: ['$totalSpend', 2] },
+          },
+        },
+      ]),
+    ]);
+
+    const totals = overall[0] || { totalOrders: 0, totalSpend: 0, avgOrderValue: 0 };
+
+    return res.json({
+      success: true,
+      data: {
+        totals: {
+          totalOrders: totals.totalOrders,
+          totalSpend: Math.round((totals.totalSpend || 0) * 100) / 100,
+          avgOrderValue: Math.round((totals.avgOrderValue || 0) * 100) / 100,
+        },
+        byDepartment: byDept,
+        byStatus: byStatus,
+        filters: { startDate, endDate },
+      },
+    });
+  } catch (error) {
+    console.error('getSpendSummary error:', error);
+    return res.status(500).json({ success: false, message: 'Failed to retrieve spend summary' });
   }
 };

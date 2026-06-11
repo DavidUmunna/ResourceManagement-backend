@@ -5,6 +5,7 @@ const admin_middle=require('./admin_test')
 const {v4:uuidv4}=require("uuid")
 const { rateLimit } = require('express-rate-limit');
 const redis = require('redis');
+const leaveRepository = require('../../repositories/leave.repository');
 const redisClient = redis.createClient({
   socket: {
     host: "127.0.0.1", // or "localhost"
@@ -63,7 +64,10 @@ router.post('/login', loginRateLimiter, async (req, res) => {
       sameSite: process.env.NODE_ENV === "production" ? "None" : "Lax",
       secure: process.env.NODE_ENV === "production"
     });
-  
+
+    const currentYear = new Date().getFullYear();
+    const leaveBalance = await leaveRepository.getOrCreateBalance(user_data._id, currentYear);
+
     res.json({ success: true,
        message: "Login successful",
        user:{
@@ -73,7 +77,8 @@ router.post('/login', loginRateLimiter, async (req, res) => {
         name: user_data.name,
         canApprove: user_data.canApprove,
         Department: user_data.Department,
-        createdAt:user_data.createdAt
+        createdAt:user_data.createdAt,
+        leaveBalance: leaveBalance.toObject({ virtuals: true })
        } });
 
   } catch (err) {

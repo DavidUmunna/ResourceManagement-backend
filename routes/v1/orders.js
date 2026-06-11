@@ -39,6 +39,9 @@ router.get("/StaffRequests",MonthlyStaffRequest)
 // Specialized analytics endpoints
 router.get('/analytics/purchase-orders/status-distribution', poAnalyticsController.getPOStatusDistribution);
 router.get('/analytics/purchase-orders/urgency-stats', poAnalyticsController.getPOUrgencyStats);
+router.get('/analytics/purchase-orders/by-department', auth, poAnalyticsController.getSpendByDepartment);
+router.get('/analytics/purchase-orders/by-status', auth, poAnalyticsController.getSpendByStatus);
+router.get('/analytics/purchase-orders/spend-summary', auth, poAnalyticsController.getSpendSummary);
 router.get('/unresolvedorders',auth,RequestController.UnresolvedOrders)
 router.get("/accounts", auth,async (req, res) => {
   try {
