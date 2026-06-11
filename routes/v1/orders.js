@@ -75,7 +75,7 @@ router.get("/accounts", auth,async (req, res) => {
     
    const [total, orders] = await Promise.all([
            PurchaseOrder.countDocuments(query),
-           PurchaseOrder.find(query).populate("staff", "-password -__v -role -canApprove -_id")
+           PurchaseOrder.find(query).populate("staff", "-password -__v -role -canApprove -NotificationToken ")
            .populate("PendingApprovals.Reviewer")
            .populate("EditedBy")
              .sort({ createdAt: -1 })
@@ -111,7 +111,7 @@ router.get("/accounts", auth,async (req, res) => {
       
       const global=[ "procurement_officer","human_resources","internal_auditor","global_admin"]
       //const isAdmin= req.user.role==="admin"
-      const orders=await PurchaseOrder.find().populate("staff",  "-password -__v -role -canApprove -_id")
+      const orders=await PurchaseOrder.find().populate("staff",  "-password -__v -role -canApprove -NotificationToken ").populate("products","name quantity price")
       .populate("PendingApprovals").populate("EditedBy")
         
       const response=(orders.map((order=>{
@@ -172,10 +172,10 @@ router.get("/", auth,monitorLogger,async (req, res) => {
     const [total, orders] = await Promise.all([
       PurchaseOrder.countDocuments(queryWithApprovals),
       PurchaseOrder.find(queryWithApprovals)
-      .sort({ createdAt: -1 })
+      .sort({ escalated: -1, escalatedAt: -1, createdAt: -1 })
       .skip(skip)
       .limit(limit)
-      .populate("staff", "-password -__v  -canApprove -_id")
+      .populate("staff", "-password -__v  -canApprove -NotificationToken ")
       .populate("PendingApprovals.Reviewer")
       .populate("EditedBy")
     ]);
@@ -214,10 +214,10 @@ router.get('/department', auth, async (req, res) => {
     "Financial_manager","Environmental_lab_manager","Facility Manager"]
     const subordinates=["Facility Manager","Waste Management Supervisor","lab_supervisor"]
     const allOrders = await PurchaseOrder.find(query)
-      .populate("staff", "Department email name  role").populate("products","name quantity price")
+      .populate("staff", "Department email name  role -NotificationToken").populate("products","name quantity price")
       .populate("PendingApprovals.Reviewer")
       .populate("EditedBy")
-      .sort({ createdAt: -1 });
+      .sort({ escalated: -1, escalatedAt: -1, createdAt: -1 });
     
 
     // Filter by Department (after population)
@@ -287,7 +287,7 @@ router.get("/:id", auth,async (req, res) => {
           .sort({ createdAt: -1 })
           .skip(skip)
           .limit(limit)
-          .populate("staff", "-password -__v  -canApprove -_id")
+          .populate("staff", "-password -__v  -canApprove -notificationToken ")
           .populate("PendingApprovals.Reviewer")
           .populate("EditedBy")
     ]);
@@ -323,7 +323,7 @@ router.get('/department/all', auth,async (req, res) => {
 
     // Fetch orders for the department
     const orders = await PurchaseOrder.find()
-    .populate("staff", "Department")
+    .populate("staff", "Department -NotificationToken ").populate("products","name quantity price")
     .populate("PendingApprovals")
     .populate("EditedBy")
         .sort({ createdAt: -1 })
@@ -883,6 +883,47 @@ router.post("/memo",async(req,res)=>{
   } catch (error) {
     console.error("Memo generation error:", error);
     res.status(500).json({ message: "Internal server error" });
+  }
+});
+
+router.put("/:id/escalate", auth, async (req, res) => {
+  try {
+    const order = await PurchaseOrder.findById(req.params.id);
+    if (!order) return res.status(404).json({ message: "Order not found" });
+
+    if (order.staff.toString() !== req.user.userId.toString()) {
+      return res.status(403).json({ message: "Only the requester can escalate their own order" });
+    }
+    if (order.status !== "Pending") {
+      return res.status(400).json({ message: "Only Pending orders can be escalated" });
+    }
+
+    order.escalated = !order.escalated;
+    order.escalatedAt = order.escalated ? new Date() : undefined;
+    await order.save();
+
+    if (order.escalated) {
+      const approvers = await user.find({ canApprove: true }).select("NotificationToken name");
+      const tokens = approvers.flatMap((u) =>
+        Array.isArray(u.NotificationToken) ? u.NotificationToken : u.NotificationToken ? [u.NotificationToken] : []
+      ).filter(Boolean);
+
+      await Promise.allSettled(
+        tokens.map((token) =>
+          sendPushNotification(
+            token,
+            "Order escalated — needs attention",
+            `${order.Title || order.orderNumber} has been escalated and requires your review`,
+            { type: "escalated_order", orderId: String(order._id) }
+          )
+        )
+      );
+    }
+
+    return res.status(200).json({ success: true, escalated: order.escalated });
+  } catch (error) {
+    console.error("Error escalating order:", error);
+    return res.status(500).json({ message: "Error processing escalation" });
   }
 });
 

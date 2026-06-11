@@ -58,7 +58,9 @@ const PurchaseOrderSchema = new Schema({
      }]
   ,
   targetDepartment:{type:String},
-  remarks:{type:String,required:true}
+  remarks:{type:String,required:true},
+  escalated:{ type: Boolean, default: false },
+  escalatedAt:{ type: Date }
 }, { timestamps: true });
 
 PurchaseOrderSchema.plugin(timestamps);
