@@ -73,11 +73,10 @@ exports.createRequest = async (userId, payload) => {
 exports.getRequests = async (currentUser, query = {}) => {
   const filter = ADMIN_ROLES.includes(currentUser.role) ? {} : { user: currentUser.userId };
 
-  const { status, leaveType, userId, startDate, endDate } = query;
+  const { status, leaveType, userId, startDate, endDate, page, limit } = query;
 
-  // Admins can scope to a specific user by ?userId=
   if (userId && ADMIN_ROLES.includes(currentUser.role)) filter.user = userId;
-  if (status) filter.status = status;
+  if (status)   filter.status    = status;
   if (leaveType) filter.leaveType = leaveType;
   if (startDate || endDate) {
     filter.startDate = {};
@@ -85,8 +84,22 @@ exports.getRequests = async (currentUser, query = {}) => {
     if (endDate)   filter.startDate.$lte = new Date(endDate);
   }
 
-  const requests = await leaveRepository.getAllRequests(filter);
-  return { data: requests };
+  const pageNum  = Math.max(1, parseInt(page)  || 1);
+  const limitNum = Math.min(100, Math.max(1, parseInt(limit) || 20));
+  const skip     = (pageNum - 1) * limitNum;
+
+  const [requests, total] = await Promise.all([
+    leaveRepository.getAllRequests(filter, { skip, limit: limitNum }),
+    leaveRepository.countRequests(filter),
+  ]);
+
+  return {
+    data: requests,
+    total,
+    page: pageNum,
+    limit: limitNum,
+    totalPages: Math.ceil(total / limitNum),
+  };
 };
 
 exports.getRequestById = async (currentUser, requestId) => {

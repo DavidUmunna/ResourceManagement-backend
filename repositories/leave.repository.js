@@ -18,9 +18,14 @@ exports.getRequestById = async (id) => {
   return LeaveRequest.findById(id).populate(REQUEST_POPULATE);
 };
 
-exports.getAllRequests = async (filter = {}) => {
-  return LeaveRequest.find(filter).sort({ createdAt: -1 }).populate(REQUEST_POPULATE);
+exports.getAllRequests = async (filter = {}, { skip, limit } = {}) => {
+  const q = LeaveRequest.find(filter).sort({ createdAt: -1 }).populate(REQUEST_POPULATE);
+  if (skip)  q.skip(skip);
+  if (limit) q.limit(limit);
+  return q;
 };
+
+exports.countRequests = async (filter = {}) => LeaveRequest.countDocuments(filter);
 
 exports.updateRequest = async (id, update) => {
   return LeaveRequest.findByIdAndUpdate(id, update, { new: true, runValidators: true }).populate(
