@@ -1,6 +1,7 @@
 const leaveRepository = require('../repositories/leave.repository');
 const User = require('../models/users_');
 const { LeaveStatus, ADMIN_ROLES } = require('../constants/leave.constants');
+const ExcelJS = require('exceljs');
 
 // Count weekdays (Mon–Fri) between two dates inclusive
 function computeWorkingDays(start, end) {
@@ -196,4 +197,107 @@ exports.updateEntitlement = async (currentUser, targetUserId, leaveType, entitle
   const updated = await leaveRepository.setEntitlement(targetUserId, year, leaveType, entitlement);
 
   return { data: updated };
+};
+
+exports.exportRequests = async (currentUser, query = {}) => {
+  if (!ADMIN_ROLES.includes(currentUser.role)) throw new Error('FORBIDDEN');
+
+  // Reuse the same filter logic as getRequests
+  const filter = {};
+  const { status, leaveType, userId, startDate, endDate, employee } = query;
+  if (userId)    filter.user      = userId;
+  if (status)    filter.status    = status;
+  if (leaveType) filter.leaveType = leaveType;
+  if (startDate || endDate) {
+    filter.startDate = {};
+    if (startDate) filter.startDate.$gte = new Date(startDate);
+    if (endDate)   filter.startDate.$lte = new Date(endDate);
+  }
+
+  let requests = await leaveRepository.getAllRequests(filter);
+
+  // employee name filter (case-insensitive substring)
+  if (employee) {
+    const q = employee.toLowerCase();
+    requests = requests.filter(r =>
+      (r.user?.name || r.user?.username || '').toLowerCase().includes(q)
+    );
+  }
+
+  const workbook  = new ExcelJS.Workbook();
+  workbook.creator = 'Leave Management System';
+  workbook.created = new Date();
+
+  const sheet = workbook.addWorksheet('Leave Requests', {
+    views: [{ state: 'frozen', ySplit: 1 }],
+  });
+
+  sheet.columns = [
+    { header: 'Employee',      key: 'employee',     width: 25 },
+    { header: 'Email',         key: 'email',        width: 30 },
+    { header: 'Department',    key: 'department',   width: 20 },
+    { header: 'Leave Type',    key: 'leaveType',    width: 15 },
+    { header: 'Start Date',    key: 'startDate',    width: 14 },
+    { header: 'End Date',      key: 'endDate',      width: 14 },
+    { header: 'Days',          key: 'days',         width: 8  },
+    { header: 'Reason',        key: 'reason',       width: 40 },
+    { header: 'Status',        key: 'status',       width: 12 },
+    { header: 'Submitted',     key: 'submitted',    width: 14 },
+    { header: 'Admin Comment', key: 'adminComment', width: 35 },
+  ];
+
+  // Style header row
+  const headerRow = sheet.getRow(1);
+  headerRow.font      = { bold: true, color: { argb: 'FFFFFFFF' } };
+  headerRow.fill      = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1D4ED8' } };
+  headerRow.alignment = { vertical: 'middle', horizontal: 'center' };
+  headerRow.height    = 20;
+
+  const STATUS_COLORS = {
+    Approved:  'FFD1FAE5',
+    Rejected:  'FFFEE2E2',
+    Pending:   'FFFEF9C3',
+    Cancelled: 'FFF3F4F6',
+  };
+
+  const fmtDate = d => d ? new Date(d).toLocaleDateString('en-GB') : '';
+
+  requests.forEach(r => {
+    const row = sheet.addRow({
+      employee:     r.user?.name || r.user?.username || '—',
+      email:        r.user?.email || '—',
+      department:   r.user?.Department || '—',
+      leaveType:    r.leaveType,
+      startDate:    fmtDate(r.startDate),
+      endDate:      fmtDate(r.endDate),
+      days:         r.daysRequested,
+      reason:       r.reason,
+      status:       r.status,
+      submitted:    fmtDate(r.createdAt),
+      adminComment: r.adminComment || '',
+    });
+
+    // Colour-code the status cell
+    const fill = STATUS_COLORS[r.status];
+    if (fill) {
+      row.getCell('status').fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: fill } };
+    }
+    row.getCell('status').font      = { bold: true };
+    row.getCell('status').alignment = { horizontal: 'center' };
+  });
+
+  // Auto-border all data rows
+  sheet.eachRow((row, rowNum) => {
+    if (rowNum === 1) return;
+    row.eachCell(cell => {
+      cell.border = {
+        top:    { style: 'thin', color: { argb: 'FFE5E7EB' } },
+        bottom: { style: 'thin', color: { argb: 'FFE5E7EB' } },
+        left:   { style: 'thin', color: { argb: 'FFE5E7EB' } },
+        right:  { style: 'thin', color: { argb: 'FFE5E7EB' } },
+      };
+    });
+  });
+
+  return workbook;
 };

@@ -8,6 +8,7 @@ const router = express.Router();
 // Any authenticated user can create a request or view their own
 router.post('/requests', auth, leaveController.createRequest);
 router.get('/requests', auth, leaveController.getRequests);
+router.get('/requests/export', auth, leaveController.exportRequests);
 router.get('/requests/:id', auth, leaveController.getRequestById);
 
 // Admin / global_admin only — approval and rejection

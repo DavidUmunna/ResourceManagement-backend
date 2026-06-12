@@ -82,6 +82,19 @@ exports.rejectRequest = async (req, res) => {
   }
 };
 
+exports.exportRequests = async (req, res) => {
+  try {
+    const workbook = await leaveService.exportRequests(req.user, req.query);
+    const filename = `leave_requests_${new Date().toISOString().slice(0, 10)}.xlsx`;
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    await workbook.xlsx.write(res);
+    res.end();
+  } catch (error) {
+    return handleError(res, error, 'exportRequests');
+  }
+};
+
 exports.cancelRequest = async (req, res) => {
   try {
     const result = await leaveService.cancelRequest(req.user, req.params.id);
