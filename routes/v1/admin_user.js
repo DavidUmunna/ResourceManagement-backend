@@ -50,6 +50,7 @@ router.post('/login', loginRateLimiter, async (req, res) => {
         role: user_data.role,
         email: user_data.email,
         name: user_data.name,
+        WorkStatus: user_data.WorkStatus,
         canApprove: user_data.canApprove,
         Department: user_data.Department,
         createdAt:user_data.createdAt
@@ -75,6 +76,7 @@ router.post('/login', loginRateLimiter, async (req, res) => {
         role: user_data.role,
         email: user_data.email,
         name: user_data.name,
+        WorkStatus: user_data.WorkStatus,
         canApprove: user_data.canApprove,
         Department: user_data.Department,
         createdAt:user_data.createdAt,

@@ -927,6 +927,180 @@ router.put("/:id/escalate", auth, async (req, res) => {
   }
 });
 
+// ── Payment receipt recording ───────────────────────────────────────────────
+
+const PAYMENT_ROLES = ['Accountant', 'global_admin'];
+const PAYMENT_DEPTS = ['accounts_dep', 'Accounts'];
+
+router.post("/:id/pay/record", auth, async (req, res) => {
+  try {
+    const { role, Department } = req.user;
+    if (!PAYMENT_ROLES.includes(role) && !PAYMENT_DEPTS.includes(Department)) {
+      return res.status(403).json({ message: "Only accountants can record payments" });
+    }
+
+    const order = await PurchaseOrder.findById(req.params.id);
+    if (!order) return res.status(404).json({ message: "Order not found" });
+
+    if (order.status !== "Approved") {
+      return res.status(400).json({ message: "Payment can only be recorded for Approved orders" });
+    }
+    if (order.payment?.status === "paid") {
+      return res.status(400).json({ message: "This order has already been paid" });
+    }
+
+    const { reference, channel, paidAt, amount } = req.body;
+    if (!reference) return res.status(400).json({ message: "Payment reference is required" });
+
+    const totalAmount = amount || (order.products || []).reduce(
+      (sum, p) => sum + (p.price || 0) * (p.quantity || 1), 0
+    );
+
+    order.payment = {
+      status: 'paid',
+      reference,
+      amount: totalAmount,
+      channel: channel || 'manual',
+      paidAt: paidAt ? new Date(paidAt) : new Date(),
+      paidBy: req.user.userId,
+    };
+    await order.save();
+
+    return res.status(200).json({ success: true, payment: order.payment });
+  } catch (error) {
+    console.error("Payment record error:", error);
+    return res.status(500).json({ message: "Failed to record payment" });
+  }
+});
+
+router.get("/:id/pay/receipt", auth, async (req, res) => {
+  try {
+    const order = await PurchaseOrder.findById(req.params.id)
+      .populate("staff", "name email Department")
+      .populate("payment.paidBy", "name email")
+      .lean();
+
+    if (!order) return res.status(404).json({ message: "Order not found" });
+    if (order.payment?.status !== "paid") {
+      return res.status(400).json({ message: "No payment recorded for this order" });
+    }
+
+    const imagePath = path.join(__dirname, "assets", "haldenlogo_1.png");
+    const { payment, products = [] } = order;
+    const totalAmount = payment.amount ||
+      products.reduce((s, p) => s + (p.price || 0) * (p.quantity || 1), 0);
+
+    const channelLabel = {
+      bank_transfer: 'Bank Transfer',
+      cash: 'Cash',
+      cheque: 'Cheque',
+      card: 'Card',
+      manual: 'Manual Entry',
+    }[payment.channel] || payment.channel || 'N/A';
+
+    const doc = new Document({
+      sections: [{
+        properties: { page: { margin: { top: 1440, right: 1440, bottom: 1440, left: 1440 } } },
+        children: [
+          new Paragraph({
+            children: [new ImageRun({
+              data: fs.readFileSync(imagePath),
+              transformation: { width: 60, height: 60 },
+            })],
+            alignment: AlignmentType.CENTER,
+            spacing: { after: 200 },
+          }),
+          new Paragraph({
+            text: "PAYMENT RECEIPT",
+            heading: HeadingLevel.TITLE,
+            alignment: AlignmentType.CENTER,
+            border: { bottom: { color: "000000", space: 20, style: BorderStyle.SINGLE, size: 6 } },
+            spacing: { after: 500 },
+          }),
+          new Table({
+            width: { size: 100, type: WidthType.PERCENTAGE },
+            borders: { top: { style: BorderStyle.NONE }, bottom: { style: BorderStyle.NONE }, left: { style: BorderStyle.NONE }, right: { style: BorderStyle.NONE } },
+            rows: [
+              ...[
+                ["Receipt For:", order.Title || order.orderNumber],
+                ["Order Number:", order.orderNumber],
+                ["Requester:", order.staff?.name || "—"],
+                ["Department:", order.staff?.Department || "—"],
+                ["Payment Reference:", payment.reference],
+                ["Payment Channel:", channelLabel],
+                ["Amount Paid:", `₦${Number(totalAmount).toLocaleString()}`],
+                ["Payment Date:", payment.paidAt ? new Date(payment.paidAt).toLocaleDateString("en-NG", { year: "numeric", month: "long", day: "numeric" }) : "—"],
+                ["Recorded By:", payment.paidBy?.name || "—"],
+              ].map(([label, value]) =>
+                new TableRow({
+                  children: [
+                    new TableCell({ children: [new Paragraph({ text: label, bold: true })], width: { size: 30, type: WidthType.PERCENTAGE } }),
+                    new TableCell({ children: [new Paragraph({ text: value })], width: { size: 70, type: WidthType.PERCENTAGE } }),
+                  ],
+                })
+              ),
+            ],
+            spacing: { after: 600 },
+          }),
+          new Paragraph({ text: "", spacing: { after: 300 } }),
+          new Paragraph({
+            text: "Items Purchased",
+            heading: HeadingLevel.HEADING_2,
+            border: { bottom: { color: "000000", space: 10, style: BorderStyle.SINGLE, size: 4 } },
+            spacing: { after: 300 },
+          }),
+          new Table({
+            width: { size: 100, type: WidthType.PERCENTAGE },
+            borders: TableBorders.ALL,
+            rows: [
+              new TableRow({
+                children: [
+                  new TableCell({ children: [new Paragraph({ text: "Item", bold: true })], shading: { fill: "F2F2F2" } }),
+                  new TableCell({ children: [new Paragraph({ text: "Qty", bold: true })], shading: { fill: "F2F2F2" } }),
+                  new TableCell({ children: [new Paragraph({ text: "Unit Price (₦)", bold: true })], shading: { fill: "F2F2F2" } }),
+                  new TableCell({ children: [new Paragraph({ text: "Total (₦)", bold: true })], shading: { fill: "F2F2F2" } }),
+                ],
+              }),
+              ...products.map(p => new TableRow({
+                children: [
+                  new TableCell({ children: [new Paragraph({ text: p.name || "" })] }),
+                  new TableCell({ children: [new Paragraph({ text: String(p.quantity || 0) })] }),
+                  new TableCell({ children: [new Paragraph({ text: `₦${Number(p.price || 0).toLocaleString()}` })] }),
+                  new TableCell({ children: [new Paragraph({ text: `₦${Number((p.price || 0) * (p.quantity || 1)).toLocaleString()}` })] }),
+                ],
+              })),
+            ],
+            spacing: { after: 600 },
+          }),
+          new Paragraph({ text: "", spacing: { after: 400 } }),
+          new Paragraph({
+            text: `TOTAL PAID: ₦${Number(totalAmount).toLocaleString()}`,
+            heading: HeadingLevel.HEADING_2,
+            alignment: AlignmentType.RIGHT,
+            spacing: { after: 800 },
+          }),
+          new Paragraph({
+            text: "This receipt serves as proof of payment for the above purchase order.",
+            alignment: AlignmentType.CENTER,
+            color: "808080",
+            border: { top: { color: "000000", space: 10, style: BorderStyle.SINGLE, size: 2 } },
+          }),
+        ],
+      }],
+    });
+
+    const buffer = await Packer.toBuffer(doc);
+    res.setHeader("Content-Disposition", `attachment; filename="receipt-${order.orderNumber}.docx"`);
+    res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.wordprocessingml.document");
+    res.send(buffer);
+  } catch (error) {
+    console.error("Receipt generation error:", error);
+    res.status(500).json({ message: "Failed to generate receipt" });
+  }
+});
+
+// ── End payment routes ──────────────────────────────────────────────────────
+
 router.put("/existingorder/:id",auth,RequestController.UpdateExistingRequest)
 
 router.put("/:id/approve", auth, async (req, res) => {

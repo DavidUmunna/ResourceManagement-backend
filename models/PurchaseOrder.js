@@ -60,7 +60,15 @@ const PurchaseOrderSchema = new Schema({
   targetDepartment:{type:String},
   remarks:{type:String,required:true},
   escalated:{ type: Boolean, default: false },
-  escalatedAt:{ type: Date }
+  escalatedAt:{ type: Date },
+  payment: {
+    status:    { type: String, enum: ['unpaid', 'pending', 'paid', 'failed'], default: 'unpaid' },
+    reference: { type: String },
+    amount:    { type: Number },
+    channel:   { type: String },
+    paidAt:    { type: Date },
+    paidBy:    { type: Schema.Types.ObjectId, ref: 'user' },
+  }
 }, { timestamps: true });
 
 PurchaseOrderSchema.plugin(timestamps);
