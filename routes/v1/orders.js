@@ -894,8 +894,9 @@ router.put("/:id/escalate", auth, async (req, res) => {
     if (order.staff.toString() !== req.user.userId.toString()) {
       return res.status(403).json({ message: "Only the requester can escalate their own order" });
     }
-    if (order.status !== "Pending") {
-      return res.status(400).json({ message: "Only Pending orders can be escalated" });
+   
+    if (order.PendingApprovals.length === 0) {
+      return res.status(400).json({ message: "No pending approvers to notify" });
     }
 
     order.escalated = !order.escalated;
