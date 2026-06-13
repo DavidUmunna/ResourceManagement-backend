@@ -16,8 +16,10 @@ router.put('/requests/:id/approve', auth, leaveController.approveRequest);
 router.put('/requests/:id/reject', auth, leaveController.rejectRequest);
 router.put('/requests/:id/cancel', auth, leaveController.cancelRequest); // Employee can cancel (only while Pending)
 
-// Owner or admin can cancel (only while Pending)
+// Owner or admin can cancel; admins can cancel any status
 router.delete('/requests/:id', auth, leaveController.cancelRequest);
+// Admin only — permanently removes the record
+router.delete('/requests/:id/hard', auth, leaveController.deleteRequest);
 
 // ── Leave Policy (org-wide default entitlements) ────────────────────────────
 // Any authenticated user can read the policy; only admins can change it

@@ -104,6 +104,15 @@ exports.cancelRequest = async (req, res) => {
   }
 };
 
+exports.deleteRequest = async (req, res) => {
+  try {
+    await leaveService.deleteRequest(req.user, req.params.id);
+    return res.status(200).json({ success: true });
+  } catch (error) {
+    return handleError(res, error, 'deleteRequest');
+  }
+};
+
 exports.getBalance = async (req, res) => {
   try {
     const result = await leaveService.getBalance(req.user, req.params.userId);

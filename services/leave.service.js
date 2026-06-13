@@ -166,13 +166,24 @@ exports.cancelRequest = async (currentUser, requestId) => {
   const isAdmin = ADMIN_ROLES.includes(currentUser.role);
   const isOwner = request.user._id.toString() === currentUser.userId;
   if (!isAdmin && !isOwner) throw new Error('FORBIDDEN');
-  if (request.status !== LeaveStatus.PENDING) throw new Error('CANNOT_CANCEL');
+  // Non-admins can only cancel their own Pending requests
+  if (!isAdmin && request.status !== LeaveStatus.PENDING) throw new Error('CANNOT_CANCEL');
 
   const updated = await leaveRepository.updateRequest(requestId, {
     status: LeaveStatus.CANCELLED,
   });
 
   return { data: updated };
+};
+
+exports.deleteRequest = async (currentUser, requestId) => {
+  if (!ADMIN_ROLES.includes(currentUser.role)) throw new Error('FORBIDDEN');
+
+  const request = await leaveRepository.getRequestById(requestId);
+  if (!request) throw new Error('NOT_FOUND');
+
+  await leaveRepository.deleteRequest(requestId);
+  return { success: true };
 };
 
 exports.getBalance = async (currentUser, targetUserId) => {
