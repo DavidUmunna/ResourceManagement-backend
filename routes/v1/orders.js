@@ -214,7 +214,7 @@ router.get('/department', auth, async (req, res) => {
     "Financial_manager","Environmental_lab_manager","Facility Manager"]
     const subordinates=["Facility Manager","Waste Management Supervisor","lab_supervisor"]
     const allOrders = await PurchaseOrder.find(query)
-      .populate("staff", "Department email name  role -NotificationToken").populate("products","name quantity price")
+      .populate("staff", "Department email name role").populate("products","name quantity price")
       .populate("PendingApprovals.Reviewer")
       .populate("EditedBy")
       .sort({ escalated: -1, escalatedAt: -1, createdAt: -1 });
@@ -323,7 +323,7 @@ router.get('/department/all', auth,async (req, res) => {
 
     // Fetch orders for the department
     const orders = await PurchaseOrder.find()
-    .populate("staff", "Department -NotificationToken ").populate("products","name quantity price")
+    .populate("staff", "Department").populate("products","name quantity price")
     .populate("PendingApprovals")
     .populate("EditedBy")
         .sort({ createdAt: -1 })
