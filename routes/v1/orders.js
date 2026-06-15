@@ -891,12 +891,23 @@ router.put("/:id/escalate", auth, async (req, res) => {
     const order = await PurchaseOrder.findById(req.params.id);
     if (!order) return res.status(404).json({ message: "Order not found" });
 
-    if (order.staff.toString() !== req.user.userId.toString()) {
-      return res.status(403).json({ message: "Only the requester can escalate their own order" });
+    const isOwner    = order.staff.toString() === req.user.userId.toString();
+    const canApprove = req.user.canApprove === true;
+    const isEscalated = order.escalated;
+
+    // Escalating: owner only, must have pending approvals to notify
+    if (!isEscalated) {
+      if (!isOwner) {
+        return res.status(403).json({ message: "Only the requester can escalate their own order" });
+      }
+      if (order.PendingApprovals.length === 0) {
+        return res.status(400).json({ message: "No pending approvers to notify" });
+      }
     }
-   
-    if (order.PendingApprovals.length === 0) {
-      return res.status(400).json({ message: "No pending approvers to notify" });
+
+    // De-escalating: owner or any approver, no status restriction
+    if (isEscalated && !isOwner && !canApprove) {
+      return res.status(403).json({ message: "Only approvers can remove escalation" });
     }
 
     order.escalated = !order.escalated;
