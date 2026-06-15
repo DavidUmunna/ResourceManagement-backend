@@ -891,51 +891,64 @@ router.put("/:id/escalate", auth, async (req, res) => {
     const order = await PurchaseOrder.findById(req.params.id);
     if (!order) return res.status(404).json({ message: "Order not found" });
 
-    const isOwner    = order.staff.toString() === req.user.userId.toString();
-    const canApprove = req.user.canApprove === true;
-    const isEscalated = order.escalated;
-
-    // Escalating: owner only, must have pending approvals to notify
-    if (!isEscalated) {
-      if (!isOwner) {
-        return res.status(403).json({ message: "Only the requester can escalate their own order" });
-      }
-      if (order.PendingApprovals.length === 0) {
-        return res.status(400).json({ message: "No pending approvers to notify" });
-      }
+    if (order.staff.toString() !== req.user.userId.toString()) {
+      return res.status(403).json({ message: "Only the requester can escalate their own order" });
+    }
+    if (order.escalated) {
+      return res.status(400).json({ message: "Order is already escalated" });
+    }
+    if (order.PendingApprovals.length === 0) {
+      return res.status(400).json({ message: "No pending approvers to notify" });
     }
 
-    // De-escalating: owner or any approver, no status restriction
-    if (isEscalated && !isOwner && !canApprove) {
-      return res.status(403).json({ message: "Only approvers can remove escalation" });
-    }
-
-    order.escalated = !order.escalated;
-    order.escalatedAt = order.escalated ? new Date() : undefined;
+    order.escalated = true;
+    order.escalatedAt = new Date();
     await order.save();
 
-    if (order.escalated) {
-      const approvers = await user.find({ canApprove: true }).select("NotificationToken name");
-      const tokens = approvers.flatMap((u) =>
-        Array.isArray(u.NotificationToken) ? u.NotificationToken : u.NotificationToken ? [u.NotificationToken] : []
-      ).filter(Boolean);
+    const approvers = await user.find({ canApprove: true }).select("NotificationToken name");
+    const tokens = approvers.flatMap((u) =>
+      Array.isArray(u.NotificationToken) ? u.NotificationToken : u.NotificationToken ? [u.NotificationToken] : []
+    ).filter(Boolean);
 
-      await Promise.allSettled(
-        tokens.map((token) =>
-          sendPushNotification(
-            token,
-            "Order escalated — needs attention",
-            `${order.Title || order.orderNumber} has been escalated and requires your review`,
-            { type: "escalated_order", orderId: String(order._id) }
-          )
+    await Promise.allSettled(
+      tokens.map((token) =>
+        sendPushNotification(
+          token,
+          "Order escalated — needs attention",
+          `${order.Title || order.orderNumber} has been escalated and requires your review`,
+          { type: "escalated_order", orderId: String(order._id) }
         )
-      );
-    }
+      )
+    );
 
-    return res.status(200).json({ success: true, escalated: order.escalated });
+    return res.status(200).json({ success: true, escalated: true });
   } catch (error) {
     console.error("Error escalating order:", error);
     return res.status(500).json({ message: "Error processing escalation" });
+  }
+});
+
+router.put("/:id/deescalate", auth, async (req, res) => {
+  try {
+    const order = await PurchaseOrder.findById(req.params.id);
+    if (!order) return res.status(404).json({ message: "Order not found" });
+
+    const isOwner = order.staff.toString() === req.user.userId.toString();
+    if (!isOwner && !req.user.canApprove) {
+      return res.status(403).json({ message: "Only the requester or an approver can remove escalation" });
+    }
+    if (!order.escalated) {
+      return res.status(400).json({ message: "Order is not escalated" });
+    }
+
+    order.escalated = false;
+    order.escalatedAt = undefined;
+    await order.save();
+
+    return res.status(200).json({ success: true, escalated: false });
+  } catch (error) {
+    console.error("Error removing escalation:", error);
+    return res.status(500).json({ message: "Error removing escalation" });
   }
 });
 
