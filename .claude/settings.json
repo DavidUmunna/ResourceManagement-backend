@@ -3,7 +3,9 @@
     "allow": [
       "Bash(npx jest *)",
       "Read(//Users/admin/**)",
-      "Bash(mkdir -p \"/Users/admin/ResouceManagement-Frontend/src/pages/POAnalytics\")"
+      "Bash(mkdir -p \"/Users/admin/ResouceManagement-Frontend/src/pages/POAnalytics\")",
+      "Bash(pm2 show *)",
+      "Bash(pm2 list *)"
     ],
     "additionalDirectories": [
       "/Users/admin/ResouceManagement-Frontend/src/services",
