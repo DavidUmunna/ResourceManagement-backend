@@ -18,3 +18,4 @@ tempUploads
 haldenerp-firebase-adminsdk.json
 controllertests/
 logs/
+google-service-account-gcs.json
