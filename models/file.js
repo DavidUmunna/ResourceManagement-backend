@@ -17,7 +17,9 @@ const fileSchema = new mongoose.Schema({
     uploadedAt: { type: Date, default: Date.now },
     driveFileId:{type:String},
     viewLink:{type:String},
-    downloadLink:{type:String}
+    downloadLink:{type:String},
+    gcsObjectName:{type:String},
+    gcsBucket:{type:String}
     }]
 });
 

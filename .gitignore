@@ -10,6 +10,7 @@ orders.xlsx
 dump
 .env
 google-service-account.json
+google-service-account-gcs.json
 /__tests__
 Haldenbackend.log
 ecosystem.config.js

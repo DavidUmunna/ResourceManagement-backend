@@ -3,7 +3,20 @@
     "allow": [
       "Bash(npx jest *)",
       "Read(//Users/admin/**)",
-      "Bash(mkdir -p \"/Users/admin/ResouceManagement-Frontend/src/pages/POAnalytics\")"
+      "Bash(mkdir -p \"/Users/admin/ResouceManagement-Frontend/src/pages/POAnalytics\")",
+      "Bash(gcloud --version)",
+      "Bash(node -e \"require\\('./googlecloudstorage.service.js'\\); console.log\\('GCS service loads OK'\\)\")",
+      "Bash(node -e \"require\\('./routes/v1/fileupload.js'\\); console.log\\('fileupload route loads OK'\\)\")",
+      "Bash(node -e \"require\\('./Uploadexceltodrive.js'\\); console.log\\('Uploadexceltodrive loads OK'\\)\")",
+      "Bash(node -e \"require\\('./models/file.js'\\); console.log\\('file model loads OK'\\)\")",
+      "Bash(node -e ' *)",
+      "Bash(nc -z localhost 27017)",
+      "Bash(nc -z localhost 6379)",
+      "Bash(node server.js)",
+      "Bash(echo \"Started with PID $!\")",
+      "Bash(curl -s -X POST http://localhost:3001/api/fileupload/create -F 'file=@/tmp/real-upload-test.txt;type=text/csv' -F userId=000000000000000000000001 -w '\\\\nHTTP_STATUS:%{http_code}\\\\n')",
+      "Bash(curl -s -X GET \"http://localhost:3001/api/fileupload/download/6a36c35c807f84c41ebd66ac/real-upload-test.txt\" -D - -o /tmp/downloaded-result.txt)",
+      "Bash(kill %1)"
     ],
     "additionalDirectories": [
       "/Users/admin/ResouceManagement-Frontend/src/services",

@@ -13,6 +13,7 @@
   "type": "commonjs",
   "description": "",
   "dependencies": {
+    "@google-cloud/storage": "^7.21.0",
     "@google/generative-ai": "^0.21.0",
     "base64-url": "^2.3.3",
     "bcrypt": "^5.1.1",

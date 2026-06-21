@@ -4,8 +4,8 @@ const path = require("path");
 const fs = require("fs");
 const file_=require("../../models/file")
 const upload = multer({ dest: "tempUploads/" });
-const { uploadFileToDrive } = require("../../googledriveservice");
 const router = express.Router();
+const { uploadFileToCloud, downloadFileFromCloud } = require("../../googlecloudstorage.service");
 const { downloadFileFromDrive } = require("../../googledriveservice")
 const sanitize=require("sanitize-filename")
 const csrf=require("csurf")
@@ -46,15 +46,14 @@ if (!fs.existsSync(uploadDir)) {
     // Upload only after validation passes
     const uploadedFiles = await Promise.all(
       req.files.map(async (file) => {
-        const driveFile = await uploadFileToDrive(file.path, sanitize(file.originalname), file.mimetype);
+        const cloudFile = await uploadFileToCloud(file.path, sanitize(file.originalname), file.mimetype);
         fs.unlinkSync(file.path);
 
         return {
           staff: userId,
           filename: file.originalname,
-          driveFileId: driveFile.id,
-          viewLink: driveFile.webViewLink,
-          downloadLink: driveFile.webContentLink,
+          gcsObjectName: cloudFile.objectName,
+          gcsBucket: cloudFile.bucket,
         };
       })
     );
@@ -98,14 +97,17 @@ if (!fs.existsSync(uploadDir)) {
     // Extract the specific file object from the array
     const targetFile = fileDoc.files.find(f => f.filename===filename);
 
-    //console.log(targetFile.driveFileId)
-    if (!targetFile || !targetFile.driveFileId) {
-      return res.status(404).json({ error: "Drive file ID missing" });
+    if (!targetFile) {
+      return res.status(404).json({ error: "File reference missing" });
     }
 
-
-    await downloadFileFromDrive(targetFile.driveFileId, res);
-    //res.status(200).json({message:"file downloaded successfully"})
+    if (targetFile.gcsObjectName) {
+      await downloadFileFromCloud(targetFile.gcsObjectName, res, targetFile.filename);
+    } else if (targetFile.driveFileId) {
+      await downloadFileFromDrive(targetFile.driveFileId, res);
+    } else {
+      return res.status(404).json({ error: "No file storage reference found" });
+    }
   } catch (err) {
     console.error("Download error:", err);
     res.status(500).json({ error: "Download failed" });
