@@ -139,6 +139,13 @@ async function run() {
     return;
   }
 
+  const existing = await AssetItem.countDocuments({ location: 'ELELENWO' });
+  if (existing > 0) {
+    console.log(`Skipping — ${existing} ELELENWO assets already exist in DB.`);
+    await mongoose.connection.close();
+    return;
+  }
+
   // Preview first 3
   console.log('\nSample records:');
   assets.slice(0, 3).forEach((a, i) =>
