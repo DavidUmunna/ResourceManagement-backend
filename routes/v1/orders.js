@@ -1,6 +1,7 @@
 const { Router } = require("express");
 const mongoose = require("mongoose");
 const PurchaseOrder = require("../../models/PurchaseOrder");
+const AssetExpenditure = require("../../models/AssetExpenditure");
 const multer = require("multer");
 const path = require("path");
 const user=require("../../models/users_")
@@ -29,6 +30,8 @@ const twoFactorVerify = require("../../middlewares/TwoFactorVerify");
 const UAParser = require("ua-parser-js");
 const { CreateSignature } = require("../../controllers/v1.controllers/Signature_Controllers");
 const { sendPushNotification } = require("../../Global_Functions/firebasePushNotification");
+const { deleteFileFromCloud } = require("../../googlecloudstorage.service");
+const { deleteFileFromDrive } = require("../../googledriveservice");
 
 router.get("/reviewed",auth,RequestController.ReviewedRequests)
 router.delete("/:id/staffresponse",auth,RequestController.DeleteStaffResponse)
@@ -366,11 +369,19 @@ router.post("/", auth, async (req, res) => {
       Title,
       staff,
       role,
-      targetDepartment
+      targetDepartment,
+      isMaintenance,
+      assetCategory,
+      assetSubCategory
     } = req.body;
 
     if (!Array.isArray(products)) {
       return res.status(400).json({ error: "Products must be an array" });
+    }
+
+    // A maintenance request must name the asset sub-category it applies to
+    if (isMaintenance && !assetSubCategory) {
+      return res.status(400).json({ error: "assetSubCategory is required for a maintenance request" });
     }
 
     const User = await user.findOne({ email });
@@ -394,7 +405,9 @@ router.post("/", auth, async (req, res) => {
       staff,
       role,
       fileRefs: req.body.fileRefs,
-      targetDepartment
+      targetDepartment,
+      isMaintenance: !!isMaintenance,
+      ...(isMaintenance && { assetCategory: assetCategory || 'waste_management', assetSubCategory }),
     });
 
     const new_Request = await newOrder.save();
@@ -1189,7 +1202,29 @@ router.put("/:id/approve", auth, async (req, res) => {
         user => user.Reviewer.toString() !== approvingUser._id.toString()
       );
     }
-    
+
+    // A maintenance order is "fully approved" once every required approver has
+    // acted (no one left pending) and none of them rejected it. At that point,
+    // add its total to the chosen asset sub-category's expenditure — once only.
+    const noRejections = !order.Approvals.some(a => a.status === "Rejected");
+    const fullyApproved = order.PendingApprovals.length === 0 && noRejections;
+    if (order.isMaintenance && fullyApproved && !order.maintenanceExpenditureApplied) {
+      const amount = (order.products || []).reduce(
+        (sum, p) => sum + (Number(p.price) || 0) * (Number(p.quantity) || 1),
+        0
+      );
+      if (amount > 0 && order.assetSubCategory) {
+        await AssetExpenditure.findOneAndUpdate(
+          { category: order.assetCategory || 'waste_management', subCategory: order.assetSubCategory },
+          {
+            $inc: { totalExpenditure: amount, orderCount: 1 },
+            $push: { entries: { order: order._id, amount, at: new Date() } },
+          },
+          { upsert: true, new: true, setDefaultsOnInsert: true }
+        );
+        order.maintenanceExpenditureApplied = true;
+      }
+    }
 
     const prev_Request=await order.save();
     if(prev_Request.Approvals.length>3){
@@ -1372,6 +1407,27 @@ router.delete("/:id", async (req, res) => {
     if (!deletedOrder) {
       return res.status(404).json({ message: "Order not found" });
     }
+
+    if (deletedOrder.fileRefs) {
+      const fileDoc = await file.findById(deletedOrder.fileRefs);
+      if (fileDoc) {
+        await Promise.allSettled(
+          (fileDoc.files || []).map(async (f) => {
+            try {
+              if (f.gcsObjectName) {
+                await deleteFileFromCloud(f.gcsObjectName);
+              } else if (f.driveFileId) {
+                await deleteFileFromDrive(f.driveFileId);
+              }
+            } catch (err) {
+              console.error("Failed to delete attachment from storage:", err.message);
+            }
+          })
+        );
+        await file.findByIdAndDelete(deletedOrder.fileRefs);
+      }
+    }
+
     res.json({ message: "Order deleted successfully" });
   } catch (error) {
     res.status(500).json({ message: "Error deleting order", error });

@@ -28,11 +28,16 @@ RESTful backend for procurement operations, file tracking, compliance logging, t
 - CSRF protection, CORS, Helmet, rate limiting, and CSP hooks.
 - Docker support via `Dockerfile` and `docker-compose.yml`.
 - Monitoring and analytics endpoints (`routes/v1/Monitoring_route.js`, `controllers/v1.controllers/Monitoring_control.js`).
+- **Google Cloud Storage** for file uploads (private bucket, uniform access control) with legacy Google Drive fallback for existing records.
+- **Payment recording** on purchase orders — accountant records reference, channel, and amount; generates a Word document receipt on demand.
+- **Cascade delete** — deleting an order also removes its GCS (or Drive) attachment and file document.
+- **CI via GitHub Actions** — tests run on Node 18.x and 20.x on every push/PR to `main`.
 
 ## Requirements
-- Node.js 22.x (see `engines`)
+- Node.js 18.x or 20.x (CI-tested); 22.x in production
 - npm
 - MongoDB instance
+- Google Cloud Storage service account key (`google-service-account-gcs.json`) — required for file upload/download
 
 ## Installation
 ```bash
@@ -41,12 +46,29 @@ cd procurement_api
 npm install
 ```
 
+Place your GCS service account key file at the repo root as `google-service-account-gcs.json` (gitignored).
+
 ## Usage
 Start the server:
 ```bash
 npm start
 ```
 Default base URL: `http://localhost:5000`
+
+**With PM2** (recommended for production):
+```bash
+pm2 start ecosystem.config.js
+```
+`ecosystem.config.js` is gitignored — create it locally. A minimal example:
+```js
+module.exports = {
+  apps: [{
+    name: "Halden_backend",
+    script: "server.js",
+    ignore_watch: [".git", "node_modules", "logs", "__tests__", "*.log"],
+  }]
+};
+```
 
 To run with Docker:
 ```bash
@@ -73,6 +95,8 @@ Docs are generated from JSDoc blocks in routes/controllers/models using `swagger
 - **Monitoring & analytics**: `routes/v1/Monitoring_route.js`, `controllers/v1.controllers/Monitoring_control.js`, `controllers/v1.controllers/Analytics.js`, `controllers/v1.controllers/RequestsAnalytics.js`.
 - **Audit**: `repositories/audit.repository.js`, `models/AuditLog.js`.
 - **Leave management**: `routes/v2/leave.routes.js`, `controllers/v2.controllers/leave.controllers.js`, `services/leave.service.js`, `repositories/leave.repository.js`, `models/LeaveRequest.js`, `models/LeaveBalance.js`, `services/validation/LeaveValidator.js`, `constants/leave.constants.js`.
+- **File storage (GCS)**: `googlecloudstorage.service.js` — upload (disk or buffer), download, and delete objects from the `halden-backend-storage` GCS bucket. `googledriveservice.js` is retained for legacy record fallback only.
+- **File upload routes**: `routes/v1/fileupload.js` — upload writes to GCS; download checks `gcsObjectName` first, falls back to `driveFileId` for pre-migration records.
 
 ## Project Structure (abridged)
 ```
@@ -81,6 +105,11 @@ procurement_api/
 ├── db.js                         # MongoDB connection
 ├── docs/swagger.js               # swagger-jsdoc config
 ├── Dockerfile / docker-compose.yml
+├── googlecloudstorage.service.js # GCS upload / download / delete
+├── googledriveservice.js         # Legacy Drive helpers (download/delete fallback)
+├── Uploadexceltodrive.js         # Excel export → GCS upload
+├── ecosystem.config.js           # PM2 config (gitignored — create locally)
+├── .github/workflows/ci.yaml     # GitHub Actions: test on Node 18.x + 20.x
 ├── Global_Functions/             # Cron jobs (checkExpiry), pagination, Firebase push
 ├── ai/                           # Gemini AI routes, controller, client, prompts
 ├── adapters/                     # External service adapters
@@ -108,13 +137,40 @@ procurement_api/
 ## Workflows
 
 ### Order Management
+
+**Lifecycle**: `Pending` → `Approved` (all approvers sign off) → optionally `Escalated` → `Paid`
+
 1. **Create**: `POST /api/orders` — saved with status `"Pending"`.
 2. **Approve**: `PUT /api/orders/:id/approve` — admin adds their name to the `Approvals` array.
-3. **Fetch**: `GET /api/orders/:email` (own orders) or `GET /api/orders` (admin, all orders).
+3. **Escalate**: `PUT /api/orders/:id/escalate` — owner only; requires at least one pending approval remaining.
+4. **De-escalate**: `PUT /api/orders/:id/deescalate` — owner or approver; removes escalation flag.
+5. **Record payment**: `POST /api/orders/:id/pay/record` — accountant/finance records payment offline; marks order as paid.
+6. **Download receipt**: `GET /api/orders/:id/pay/receipt` — returns a generated `.docx` payment receipt.
+7. **Delete**: `DELETE /api/orders/:id` — cascades: removes the GCS or Drive attachment object and the file document.
+8. **Fetch**: `GET /api/orders/:email` (own orders) or `GET /api/orders` (admin, all orders).
+
+**Record payment request body**
+```json
+{
+  "reference": "PSK-20240701-ABC123",
+  "channel": "Bank Transfer",
+  "amount": 150000,
+  "paidAt": "2026-07-01T10:00:00.000Z"
+}
+```
+
+### File Upload / Download
+
+Files are stored in Google Cloud Storage (`halden-backend-storage`, private bucket, uniform access control).
+
+- **Upload**: `POST /api/upload` — multipart file upload; stores object in GCS and saves `gcsObjectName` + `gcsBucket` on the file document.
+- **Download**: `GET /api/upload/:fileId` — streams from GCS using `gcsObjectName`; falls back to Google Drive using `driveFileId` for records uploaded before the GCS migration.
+
+Files are cascade-deleted from GCS (or Drive) when their parent order is deleted.
 
 ### Leave Management
 
-Leave requests follow a **Pending → Approved / Rejected** lifecycle. Approving a request deducts days from the user's balance and sets their `WorkStatus` to `"On-Leave"`.
+Leave requests follow a **Pending → Approved / Rejected** lifecycle. Approving a request deducts days from the user's balance and sets their `WorkStatus` to `"On-Leave"`. New users default to `WorkStatus: "On-Site"`.
 
 **Access control**
 | Action | Required role |
@@ -161,7 +217,7 @@ Defaults can be overridden per-user via the update-entitlement endpoint.
 ```
 
 ### User Management
-- Create user: `POST /api/users` (admin)
+- Create user: `POST /api/users` (admin) — new users default to `WorkStatus: "On-Site"`
 - Delete user: `DELETE /api/users/:id` (admin)
 - Update password: `PUT /api/users/:id`
 - Get all users: `GET /api/users` (admin)
@@ -187,11 +243,27 @@ Defaults can be overridden per-user via the update-entitlement endpoint.
 | `NTFY_TOPIC` | No | ntfy.sh topic for push notifications |
 | `NODE_ENV` | No | `development` / `production` |
 
+**GCS setup** (no env variable — uses a key file):  
+Place `google-service-account-gcs.json` at the repo root. The service account needs the `Storage Object Admin` role scoped to the `halden-backend-storage` bucket. This file is gitignored and must be copied to the server manually on each deployment.
+
+## CI
+
+GitHub Actions runs the test suite on every push and pull request to `main`:
+
+```
+.github/workflows/ci.yaml
+```
+
+- Matrix: Node.js 18.x and 20.x
+- Steps: `npm ci` → `npm test`
+- No build step, no deploy step — CI validates tests only.
+
 ## Error Handling
 | Status | Meaning |
 |---|---|
 | 400 | Missing or invalid request parameters |
 | 401 | Invalid or missing authentication token |
+| 403 | Insufficient permissions |
 | 404 | Resource not found |
 | 500 | Unexpected server error |
 

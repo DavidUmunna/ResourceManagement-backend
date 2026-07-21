@@ -68,7 +68,14 @@ const PurchaseOrderSchema = new Schema({
     channel:   { type: String },
     paidAt:    { type: Date },
     paidBy:    { type: Schema.Types.ObjectId, ref: 'user' },
-  }
+  },
+  // Maintenance purchase orders (e.g. waste-management asset maintenance).
+  // When such an order is fully approved, its total is added to the matching
+  // asset sub-category's expenditure (see models/AssetExpenditure.js).
+  isMaintenance:                 { type: Boolean, default: false },
+  assetCategory:                 { type: String },   // e.g. 'waste_management'
+  assetSubCategory:              { type: String },   // chosen asset sub-category
+  maintenanceExpenditureApplied: { type: Boolean, default: false },
 }, { timestamps: true });
 
 PurchaseOrderSchema.plugin(timestamps);

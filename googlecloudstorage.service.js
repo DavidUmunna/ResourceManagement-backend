@@ -81,8 +81,13 @@ const downloadFileFromCloud = async (objectName, res, filename) => {
   }
 };
 
+const deleteFileFromCloud = async (objectName) => {
+  await bucket.file(objectName).delete();
+};
+
 module.exports = {
   uploadFileToCloud,
   uploadBufferToCloud,
   downloadFileFromCloud,
+  deleteFileFromCloud,
 };
