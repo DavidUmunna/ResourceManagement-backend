@@ -58,3 +58,5 @@ ecosystem.config.js
 test.txt
 controllertests/
 __tests__
+google-service-account-gcs.json
+.claude/
