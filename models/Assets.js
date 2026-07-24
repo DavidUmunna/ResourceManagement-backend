@@ -52,6 +52,11 @@ const AssetItemSchema = new Schema({
     type:String,
     default:"Head Office"
   },
+
+  subCategory: {
+    type: String,
+    trim: true,
+  },
  
   lastUpdated: {
     type: Date,
@@ -76,6 +81,7 @@ AssetItemSchema.virtual('totalValue').get(function() {
 // Indexes for better query performance
 AssetItemSchema.index({ name: 'text', category: 1, condition: 1 });
 AssetItemSchema.index({ sku: 1 }, { unique: true });
+AssetItemSchema.index({ category: 1, subCategory: 1 });
 
 // Middleware to handle SKU generation if not provided
 

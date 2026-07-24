@@ -5,6 +5,7 @@ const admin_middle=require('./admin_test')
 const {v4:uuidv4}=require("uuid")
 const { rateLimit } = require('express-rate-limit');
 const redis = require('redis');
+const leaveRepository = require('../../repositories/leave.repository');
 const redisClient = redis.createClient({
   socket: {
     host: "127.0.0.1", // or "localhost"
@@ -49,6 +50,7 @@ router.post('/login', loginRateLimiter, async (req, res) => {
         role: user_data.role,
         email: user_data.email,
         name: user_data.name,
+        WorkStatus: user_data.WorkStatus,
         canApprove: user_data.canApprove,
         Department: user_data.Department,
         createdAt:user_data.createdAt
@@ -56,13 +58,16 @@ router.post('/login', loginRateLimiter, async (req, res) => {
       'EX',
       1200 // 15 minutes TTL
     );
-    console.log("session  Id",sessionId)
+    console.log("session  Id :"+user_data.name+" :"+sessionId)
     res.cookie("sessionId", sessionId, {
       httpOnly: true,
       maxAge: 20 * 60 * 1000, // 15 minutes
       sameSite: process.env.NODE_ENV === "production" ? "None" : "Lax",
       secure: process.env.NODE_ENV === "production"
     });
+
+    const currentYear = new Date().getFullYear();
+    const leaveBalance = await leaveRepository.getOrCreateBalance(user_data._id, currentYear);
 
     res.json({ success: true,
        message: "Login successful",
@@ -71,9 +76,11 @@ router.post('/login', loginRateLimiter, async (req, res) => {
         role: user_data.role,
         email: user_data.email,
         name: user_data.name,
+        WorkStatus: user_data.WorkStatus,
         canApprove: user_data.canApprove,
         Department: user_data.Department,
-        createdAt:user_data.createdAt
+        createdAt:user_data.createdAt,
+        leaveBalance: leaveBalance.toObject({ virtuals: true })
        } });
 
   } catch (err) {
@@ -85,27 +92,17 @@ router.post('/login', loginRateLimiter, async (req, res) => {
 
 router.post('/logout', async (req, res) => {
   try {
-    const { userId } = req.body;
+    const sessionId = req.cookies && req.cookies.sessionId;
 
-    if (!/^[0-9A-Fa-f]{24}$/.test(userId)){        //userId verification
-           return res.status(400).json({message:"userId is not valid "})
-
-    }
-    const adminuser=await AdminUser.findById(userId)
-
-    if(!adminuser){
-      return res.status(404).json({success:false,message:"user Id not found"})
+    if (!sessionId) {
+      return res.status(400).json({
+        success: false,
+        message: "No active session found",
+      });
     }
 
-    // Delete the Redis session
-    const ExistingSession=await redisClient.del(`session:${userId}`);
-
-    if (!ExistingSession){
-      return res.status(404).json({message:"No session with matching ID"})
-    }
-    console.log("User logged out:", userId);
-    
-
+    // Delete the Redis session created during login.
+    const deletedSessions = await redisClient.del(`session:${sessionId}`);
 
     // Clear the sessionId cookie
     res.clearCookie("sessionId", {
@@ -113,6 +110,15 @@ router.post('/logout', async (req, res) => {
       secure: process.env.NODE_ENV === "production",
       sameSite: process.env.NODE_ENV === "production" ? "None" : "Lax",
     });
+
+    if (!deletedSessions) {
+      return res.status(200).json({
+        success: true,
+        message: "Session already expired and cookie cleared",
+      });
+    }
+
+    console.log("User logged out. Session cleared:", sessionId);
 
     return res.status(200).json({
       success: true,

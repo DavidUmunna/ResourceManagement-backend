@@ -7,20 +7,21 @@ admin.initializeApp({
 });
 
 // Function to send push notification
-async function sendPushNotification(token, title, body) {
+async function sendPushNotification(token, title, body, data = {}) {
   const message = {
-    token: token,
-    notification: {
-      title: title,
-      body: body
-    }
+    token,
+    notification: { title, body },
+    data,
   };
+  console.log(message);
 
   try {
     const response = await admin.messaging().send(message);
-    console.log('Successfully sent message:', response);
+    console.log("Successfully sent message:", response);
+    return response;
   } catch (error) {
-    console.error('Error sending message:', error);
+    console.error("Error sending message:", error);
+    throw error;
   }
 }
 

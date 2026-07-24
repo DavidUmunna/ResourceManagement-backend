@@ -36,7 +36,8 @@ const PurchaseOrderSchema = new Schema({
     type:Schema.Types.ObjectId,
     ref:"File"
 
-  },
+  }
+  ,
   EditedBy:{
     type:Schema.Types.ObjectId,
     ref:"user"
@@ -57,7 +58,24 @@ const PurchaseOrderSchema = new Schema({
      }]
   ,
   targetDepartment:{type:String},
-  remarks:{type:String,required:true}
+  remarks:{type:String,required:true},
+  escalated:{ type: Boolean, default: false },
+  escalatedAt:{ type: Date },
+  payment: {
+    status:    { type: String, enum: ['unpaid', 'pending', 'paid', 'failed'], default: 'unpaid' },
+    reference: { type: String },
+    amount:    { type: Number },
+    channel:   { type: String },
+    paidAt:    { type: Date },
+    paidBy:    { type: Schema.Types.ObjectId, ref: 'user' },
+  },
+  // Maintenance purchase orders (e.g. waste-management asset maintenance).
+  // When such an order is fully approved, its total is added to the matching
+  // asset sub-category's expenditure (see models/AssetExpenditure.js).
+  isMaintenance:                 { type: Boolean, default: false },
+  assetCategory:                 { type: String },   // e.g. 'waste_management'
+  assetSubCategory:              { type: String },   // chosen asset sub-category
+  maintenanceExpenditureApplied: { type: Boolean, default: false },
 }, { timestamps: true });
 
 PurchaseOrderSchema.plugin(timestamps);

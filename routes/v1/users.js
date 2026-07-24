@@ -12,17 +12,37 @@ const router=Router()
 
 router.get("/", async (req, res) => {
   try {
-    const user_data = await User.find()
-    const response=(user_data.map((user=>{
-      const plainUser=user.toObject()
-      
-        delete  plainUser.password
-      
-      return plainUser
-    })))
-    res.status(200).json({data:response});
+    const page       = Math.max(1, parseInt(req.query.page)  || 1);
+    const limit      = Math.min(100, Math.max(1, parseInt(req.query.limit) || 20));
+    const skip       = (page - 1) * limit;
+    const search     = req.query.search     ? req.query.search.trim()     : '';
+    const department = req.query.department ? req.query.department.trim() : '';
+    const role       = req.query.role       ? req.query.role.trim()       : '';
+
+    const filter = {};
+    if (department) filter.Department = department;
+    if (role)       filter.role       = role;
+    if (search) {
+      const regex = new RegExp(search, 'i');
+      filter.$or  = [{ name: regex }, { email: regex }];
+    }
+
+    const [users, total] = await Promise.all([
+      User.find(filter).skip(skip).limit(limit).lean(),
+      User.countDocuments(filter),
+    ]);
+
+    const data = users.map(u => { delete u.password; return u; });
+
+    res.status(200).json({
+      data,
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit),
+    });
   } catch (error) {
-    console.error(error)
+    console.error(error);
     res.status(500).json({ message: "Server error" });
   }
 });

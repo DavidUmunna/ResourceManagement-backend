@@ -77,7 +77,12 @@ const downloadFileFromDrive = async (fileId, res) => {
 };
 
 
+const deleteFileFromDrive = async (fileId) => {
+  await drive.files.delete({ fileId });
+};
+
 module.exports = {
   uploadFileToDrive,
   downloadFileFromDrive,
+  deleteFileFromDrive,
 };

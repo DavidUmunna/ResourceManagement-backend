@@ -1,17 +1,60 @@
-
+# ── Environment ──────────────────────────────────────────────────────────────
 .env
-.env.example
 .env.local
 .env.staging
-node_modules
-.vercel
-uploads
-orders.xlsx
-dump
-.env
+.env.production
+# .env.example is intentionally committed so new devs know what vars to set
+
+# ── Dependencies ──────────────────────────────────────────────────────────────
+node_modules/
+
+# ── Service account / secrets ─────────────────────────────────────────────────
 google-service-account.json
-/__tests__
-Haldenbackend.log
-ecosystem.config.js
-tempUploads
+google-service-account-gcs.json
 haldenerp-firebase-adminsdk.json
+
+# ── Uploads / temp files ──────────────────────────────────────────────────────
+uploads/
+tempUploads/
+
+# ── Logs ──────────────────────────────────────────────────────────────────────
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# ── Local database data ───────────────────────────────────────────────────────
+data/
+dump/
+
+# ── Excel / CSV data files ────────────────────────────────────────────────────
+
+*.csv
+
+# ── Build / deploy ────────────────────────────────────────────────────────────
+.vercel/
+dist/
+build/
+
+# ── Test coverage ─────────────────────────────────────────────────────────────
+coverage/
+.nyc_output/
+
+# ── Process manager ───────────────────────────────────────────────────────────
+ecosystem.config.js
+
+# ── macOS ─────────────────────────────────────────────────────────────────────
+.DS_Store
+**/.DS_Store
+
+# ── Editor / IDE ──────────────────────────────────────────────────────────────
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# ── Misc ──────────────────────────────────────────────────────────────────────
+test.txt
+google-service-account-gcs.json
+.claude/

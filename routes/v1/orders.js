@@ -1,6 +1,7 @@
 const { Router } = require("express");
 const mongoose = require("mongoose");
 const PurchaseOrder = require("../../models/PurchaseOrder");
+const AssetExpenditure = require("../../models/AssetExpenditure");
 const multer = require("multer");
 const path = require("path");
 const user=require("../../models/users_")
@@ -28,17 +29,22 @@ const poAnalyticsController=require("../../controllers/v1.controllers/RequestsAn
 const twoFactorVerify = require("../../middlewares/TwoFactorVerify");
 const UAParser = require("ua-parser-js");
 const { CreateSignature } = require("../../controllers/v1.controllers/Signature_Controllers");
-
+const { sendPushNotification } = require("../../Global_Functions/firebasePushNotification");
+const { deleteFileFromCloud } = require("../../googlecloudstorage.service");
+const { deleteFileFromDrive } = require("../../googledriveservice");
 
 router.get("/reviewed",auth,RequestController.ReviewedRequests)
 router.delete("/:id/staffresponse",auth,RequestController.DeleteStaffResponse)
 router.get("/staffresponses",auth,RequestController.GetStaffResponses)
 router.get('/analytics/purchase-orders', poAnalyticsController.getPOAnalytics);
-router.get('/DailyRequests',auth,GetOverallMonthlyRequests)
+router.get('/monthlyrequests',auth,GetOverallMonthlyRequests)
 router.get("/StaffRequests",MonthlyStaffRequest)
 // Specialized analytics endpoints
 router.get('/analytics/purchase-orders/status-distribution', poAnalyticsController.getPOStatusDistribution);
 router.get('/analytics/purchase-orders/urgency-stats', poAnalyticsController.getPOUrgencyStats);
+router.get('/analytics/purchase-orders/by-department', auth, poAnalyticsController.getSpendByDepartment);
+router.get('/analytics/purchase-orders/by-status', auth, poAnalyticsController.getSpendByStatus);
+router.get('/analytics/purchase-orders/spend-summary', auth, poAnalyticsController.getSpendSummary);
 router.get('/unresolvedorders',auth,RequestController.UnresolvedOrders)
 router.get("/accounts", auth,async (req, res) => {
   try {
@@ -72,7 +78,7 @@ router.get("/accounts", auth,async (req, res) => {
     
    const [total, orders] = await Promise.all([
            PurchaseOrder.countDocuments(query),
-           PurchaseOrder.find(query).populate("staff", "-password -__v -role -canApprove -_id")
+           PurchaseOrder.find(query).populate("staff", "-password -__v -role -canApprove -NotificationToken ")
            .populate("PendingApprovals.Reviewer")
            .populate("EditedBy")
              .sort({ createdAt: -1 })
@@ -108,7 +114,7 @@ router.get("/accounts", auth,async (req, res) => {
       
       const global=[ "procurement_officer","human_resources","internal_auditor","global_admin"]
       //const isAdmin= req.user.role==="admin"
-      const orders=await PurchaseOrder.find().populate("staff",  "-password -__v -role -canApprove -_id")
+      const orders=await PurchaseOrder.find().populate("staff",  "-password -__v -role -canApprove -NotificationToken ").populate("products","name quantity price")
       .populate("PendingApprovals").populate("EditedBy")
         
       const response=(orders.map((order=>{
@@ -169,10 +175,10 @@ router.get("/", auth,monitorLogger,async (req, res) => {
     const [total, orders] = await Promise.all([
       PurchaseOrder.countDocuments(queryWithApprovals),
       PurchaseOrder.find(queryWithApprovals)
-      .sort({ createdAt: -1 })
+      .sort({ escalated: -1, escalatedAt: -1, createdAt: -1 })
       .skip(skip)
       .limit(limit)
-      .populate("staff", "-password -__v  -canApprove -_id")
+      .populate("staff", "-password -__v  -canApprove -NotificationToken ")
       .populate("PendingApprovals.Reviewer")
       .populate("EditedBy")
     ]);
@@ -211,10 +217,10 @@ router.get('/department', auth, async (req, res) => {
     "Financial_manager","Environmental_lab_manager","Facility Manager"]
     const subordinates=["Facility Manager","Waste Management Supervisor","lab_supervisor"]
     const allOrders = await PurchaseOrder.find(query)
-      .populate("staff", "Department email name  role").populate("products","name quantity price")
+      .populate("staff", "Department email name role").populate("products","name quantity price")
       .populate("PendingApprovals.Reviewer")
       .populate("EditedBy")
-      .sort({ createdAt: -1 });
+      .sort({ escalated: -1, escalatedAt: -1, createdAt: -1 });
     
 
     // Filter by Department (after population)
@@ -278,17 +284,17 @@ router.get("/:id", auth,async (req, res) => {
     
 
     // Fetch user orders
-   const [total, userorders] = await Promise.all([
-           PurchaseOrder.countDocuments({staff:id}),
-           PurchaseOrder.find({staff:id})
+  const [total, userorders] = await Promise.all([
+            PurchaseOrder.countDocuments({staff:id}),
+            PurchaseOrder.find({staff:id})
           .sort({ createdAt: -1 })
           .skip(skip)
           .limit(limit)
-          .populate("staff", "-password -__v  -canApprove -_id")
+          .populate("staff", "-password -__v  -canApprove -notificationToken ")
           .populate("PendingApprovals.Reviewer")
           .populate("EditedBy")
     ]);
-   
+  
     const response=(userorders.map((order=>{
       const plainOrder = order.toObject();
       /*if(!global.includes(req.user.role)){
@@ -301,7 +307,7 @@ router.get("/:id", auth,async (req, res) => {
       return res.status(404).json({ message: "No orders found for this user" });
     }
 
-   res.json({
+    res.json({
       data: response,
       Pagination: getPagingData(total, page, limit)
     });
@@ -320,7 +326,7 @@ router.get('/department/all', auth,async (req, res) => {
 
     // Fetch orders for the department
     const orders = await PurchaseOrder.find()
-    .populate("staff", "Department")
+    .populate("staff", "Department").populate("products","name quantity price")
     .populate("PendingApprovals")
     .populate("EditedBy")
         .sort({ createdAt: -1 })
@@ -352,22 +358,39 @@ router.get('/department/all', auth,async (req, res) => {
 // Create a new purchase Request
 router.post("/", auth, async (req, res) => {
   try {
-    const { supplier, orderedBy, products,email,filenames,
-       urgency,remarks,Title,staff,role,targetDepartment } = req.body;
-    
-   
+    const {
+      supplier,
+      orderedBy,
+      products,
+      email,
+      filenames,
+      urgency,
+      remarks,
+      Title,
+      staff,
+      role,
+      targetDepartment,
+      isMaintenance,
+      assetCategory,
+      assetSubCategory
+    } = req.body;
 
-    // Ensure products is an array and destructure its fields
     if (!Array.isArray(products)) {
       return res.status(400).json({ error: "Products must be an array" });
     }
 
-   
-    const User=await user.findOne({email})
+    // A maintenance request must name the asset sub-category it applies to
+    if (isMaintenance && !assetSubCategory) {
+      return res.status(400).json({ error: "assetSubCategory is required for a maintenance request" });
+    }
+
+    const User = await user.findOne({ email });
+
     if (!User) {
       return res.status(404).json({ error: "User not found" });
     }
-    const Department=User.Department
+
+    const Department = User.Department;
 
     const newOrder = new PurchaseOrder({
       supplier,
@@ -381,24 +404,57 @@ router.post("/", auth, async (req, res) => {
       Department,
       staff,
       role,
-      fileRefs: req.body.fileRefs,    
-      targetDepartment
+      fileRefs: req.body.fileRefs,
+      targetDepartment,
+      isMaintenance: !!isMaintenance,
+      ...(isMaintenance && { assetCategory: assetCategory || 'waste_management', assetSubCategory }),
     });
-    
-    
-    const new_Request=await newOrder.save();
-    //const PopulatedNewRequest=new_Request.populate("staff")
-  
-    //IncomingRequest(new_Request._id)
-    ValidatePendingApprovals(new_Request._id)
-    
-    const exportgoogledrive=await exportToExcelAndUpload(newOrder._id);  
 
-    res.status(200).json({success:true, newOrder });
+    const new_Request = await newOrder.save();
+
+    await ValidatePendingApprovals(new_Request._id);
+
+    const usersToNotify = await user.find({
+      $or: [
+        { role: { $in: ["global_admin", "accounts"] } },
+        { Department: targetDepartment || Department }
+      ]
+    }).select("NotificationToken name Department");
+
+
+    const tokens = usersToNotify
+      .flatMap((u) => {
+        console.log("user to notify",u)
+        if (Array.isArray(u.NotificationToken)) return u.NotificationToken;
+        if (u.NotificationToken) return [u.NotificationToken];
+        return [];
+      })
+      .filter(Boolean);
+
+   await Promise.allSettled(
+  tokens.map((token) =>
+    sendPushNotification(
+      token,
+      "New request submitted",
+      `${Title || "A new request"} was created by ${User.name || email}`,
+      {
+        type: "new_request",
+        orderId: String(new_Request._id),
+        department: String(targetDepartment || Department || ""),
+      }
+    )
+  )
+);
+
+    res.status(200).json({ success: true, newOrder: new_Request });
   } catch (error) {
     console.error("Error creating purchase order:", error);
-    res.status(500).json({success:false, message: "Error creating purchase order", error });
-  };
+    res.status(500).json({
+      success: false,
+      message: "Error creating purchase order",
+      error
+    });
+  }
 });
 
 router.post("/export", async (req, res) => {
@@ -843,6 +899,246 @@ router.post("/memo",async(req,res)=>{
   }
 });
 
+router.put("/:id/escalate", auth, async (req, res) => {
+  try {
+    const order = await PurchaseOrder.findById(req.params.id);
+    if (!order) return res.status(404).json({ message: "Order not found" });
+
+    if (order.staff.toString() !== req.user.userId.toString()) {
+      return res.status(403).json({ message: "Only the requester can escalate their own order" });
+    }
+    if (order.escalated) {
+      return res.status(400).json({ message: "Order is already escalated" });
+    }
+    if (order.PendingApprovals.length === 0) {
+      return res.status(400).json({ message: "No pending approvers to notify" });
+    }
+
+    order.escalated = true;
+    order.escalatedAt = new Date();
+    await order.save();
+
+    const approvers = await user.find({ canApprove: true }).select("NotificationToken name");
+    const tokens = approvers.flatMap((u) =>
+      Array.isArray(u.NotificationToken) ? u.NotificationToken : u.NotificationToken ? [u.NotificationToken] : []
+    ).filter(Boolean);
+
+    await Promise.allSettled(
+      tokens.map((token) =>
+        sendPushNotification(
+          token,
+          "Order escalated — needs attention",
+          `${order.Title || order.orderNumber} has been escalated and requires your review`,
+          { type: "escalated_order", orderId: String(order._id) }
+        )
+      )
+    );
+
+    return res.status(200).json({ success: true, escalated: true });
+  } catch (error) {
+    console.error("Error escalating order:", error);
+    return res.status(500).json({ message: "Error processing escalation" });
+  }
+});
+
+router.put("/:id/deescalate", auth, async (req, res) => {
+  try {
+    const order = await PurchaseOrder.findById(req.params.id);
+    if (!order) return res.status(404).json({ message: "Order not found" });
+
+    const isOwner = order.staff.toString() === req.user.userId.toString();
+    if (!isOwner && !req.user.canApprove) {
+      return res.status(403).json({ message: "Only the requester or an approver can remove escalation" });
+    }
+    if (!order.escalated) {
+      return res.status(400).json({ message: "Order is not escalated" });
+    }
+
+    order.escalated = false;
+    order.escalatedAt = undefined;
+    await order.save();
+
+    return res.status(200).json({ success: true, escalated: false });
+  } catch (error) {
+    console.error("Error removing escalation:", error);
+    return res.status(500).json({ message: "Error removing escalation" });
+  }
+});
+
+// ── Payment receipt recording ───────────────────────────────────────────────
+
+const PAYMENT_ROLES = ['Accountant', 'global_admin'];
+const PAYMENT_DEPTS = ['accounts_dep', 'Accounts'];
+
+router.post("/:id/pay/record", auth, async (req, res) => {
+  try {
+    const { role, Department } = req.user;
+    if (!PAYMENT_ROLES.includes(role) && !PAYMENT_DEPTS.includes(Department)) {
+      return res.status(403).json({ message: "Only accountants can record payments" });
+    }
+
+    const order = await PurchaseOrder.findById(req.params.id);
+    if (!order) return res.status(404).json({ message: "Order not found" });
+
+    if (order.status !== "Approved") {
+      return res.status(400).json({ message: "Payment can only be recorded for Approved orders" });
+    }
+    if (order.payment?.status === "paid") {
+      return res.status(400).json({ message: "This order has already been paid" });
+    }
+
+    const { reference, channel, paidAt, amount } = req.body;
+    if (!reference) return res.status(400).json({ message: "Payment reference is required" });
+
+    const totalAmount = amount || (order.products || []).reduce(
+      (sum, p) => sum + (p.price || 0) * (p.quantity || 1), 0
+    );
+
+    order.payment = {
+      status: 'paid',
+      reference,
+      amount: totalAmount,
+      channel: channel || 'manual',
+      paidAt: paidAt ? new Date(paidAt) : new Date(),
+      paidBy: req.user.userId,
+    };
+    await order.save();
+
+    return res.status(200).json({ success: true, payment: order.payment });
+  } catch (error) {
+    console.error("Payment record error:", error);
+    return res.status(500).json({ message: "Failed to record payment" });
+  }
+});
+
+router.get("/:id/pay/receipt", auth, async (req, res) => {
+  try {
+    const order = await PurchaseOrder.findById(req.params.id)
+      .populate("staff", "name email Department")
+      .populate("payment.paidBy", "name email")
+      .lean();
+
+    if (!order) return res.status(404).json({ message: "Order not found" });
+    if (order.payment?.status !== "paid") {
+      return res.status(400).json({ message: "No payment recorded for this order" });
+    }
+
+    const imagePath = path.join(__dirname, "assets", "haldenlogo_1.png");
+    const { payment, products = [] } = order;
+    const totalAmount = payment.amount ||
+      products.reduce((s, p) => s + (p.price || 0) * (p.quantity || 1), 0);
+
+    const channelLabel = {
+      bank_transfer: 'Bank Transfer',
+      cash: 'Cash',
+      cheque: 'Cheque',
+      card: 'Card',
+      manual: 'Manual Entry',
+    }[payment.channel] || payment.channel || 'N/A';
+
+    const doc = new Document({
+      sections: [{
+        properties: { page: { margin: { top: 1440, right: 1440, bottom: 1440, left: 1440 } } },
+        children: [
+          new Paragraph({
+            children: [new ImageRun({
+              data: fs.readFileSync(imagePath),
+              transformation: { width: 60, height: 60 },
+            })],
+            alignment: AlignmentType.CENTER,
+            spacing: { after: 200 },
+          }),
+          new Paragraph({
+            text: "PAYMENT RECEIPT",
+            heading: HeadingLevel.TITLE,
+            alignment: AlignmentType.CENTER,
+            border: { bottom: { color: "000000", space: 20, style: BorderStyle.SINGLE, size: 6 } },
+            spacing: { after: 500 },
+          }),
+          new Table({
+            width: { size: 100, type: WidthType.PERCENTAGE },
+            borders: { top: { style: BorderStyle.NONE }, bottom: { style: BorderStyle.NONE }, left: { style: BorderStyle.NONE }, right: { style: BorderStyle.NONE } },
+            rows: [
+              ...[
+                ["Receipt For:", order.Title || order.orderNumber],
+                ["Order Number:", order.orderNumber],
+                ["Requester:", order.staff?.name || "—"],
+                ["Department:", order.staff?.Department || "—"],
+                ["Payment Reference:", payment.reference],
+                ["Payment Channel:", channelLabel],
+                ["Amount Paid:", `₦${Number(totalAmount).toLocaleString()}`],
+                ["Payment Date:", payment.paidAt ? new Date(payment.paidAt).toLocaleDateString("en-NG", { year: "numeric", month: "long", day: "numeric" }) : "—"],
+                ["Recorded By:", payment.paidBy?.name || "—"],
+              ].map(([label, value]) =>
+                new TableRow({
+                  children: [
+                    new TableCell({ children: [new Paragraph({ text: label, bold: true })], width: { size: 30, type: WidthType.PERCENTAGE } }),
+                    new TableCell({ children: [new Paragraph({ text: value })], width: { size: 70, type: WidthType.PERCENTAGE } }),
+                  ],
+                })
+              ),
+            ],
+            spacing: { after: 600 },
+          }),
+          new Paragraph({ text: "", spacing: { after: 300 } }),
+          new Paragraph({
+            text: "Items Purchased",
+            heading: HeadingLevel.HEADING_2,
+            border: { bottom: { color: "000000", space: 10, style: BorderStyle.SINGLE, size: 4 } },
+            spacing: { after: 300 },
+          }),
+          new Table({
+            width: { size: 100, type: WidthType.PERCENTAGE },
+            borders: TableBorders.ALL,
+            rows: [
+              new TableRow({
+                children: [
+                  new TableCell({ children: [new Paragraph({ text: "Item", bold: true })], shading: { fill: "F2F2F2" } }),
+                  new TableCell({ children: [new Paragraph({ text: "Qty", bold: true })], shading: { fill: "F2F2F2" } }),
+                  new TableCell({ children: [new Paragraph({ text: "Unit Price (₦)", bold: true })], shading: { fill: "F2F2F2" } }),
+                  new TableCell({ children: [new Paragraph({ text: "Total (₦)", bold: true })], shading: { fill: "F2F2F2" } }),
+                ],
+              }),
+              ...products.map(p => new TableRow({
+                children: [
+                  new TableCell({ children: [new Paragraph({ text: p.name || "" })] }),
+                  new TableCell({ children: [new Paragraph({ text: String(p.quantity || 0) })] }),
+                  new TableCell({ children: [new Paragraph({ text: `₦${Number(p.price || 0).toLocaleString()}` })] }),
+                  new TableCell({ children: [new Paragraph({ text: `₦${Number((p.price || 0) * (p.quantity || 1)).toLocaleString()}` })] }),
+                ],
+              })),
+            ],
+            spacing: { after: 600 },
+          }),
+          new Paragraph({ text: "", spacing: { after: 400 } }),
+          new Paragraph({
+            text: `TOTAL PAID: ₦${Number(totalAmount).toLocaleString()}`,
+            heading: HeadingLevel.HEADING_2,
+            alignment: AlignmentType.RIGHT,
+            spacing: { after: 800 },
+          }),
+          new Paragraph({
+            text: "This receipt serves as proof of payment for the above purchase order.",
+            alignment: AlignmentType.CENTER,
+            color: "808080",
+            border: { top: { color: "000000", space: 10, style: BorderStyle.SINGLE, size: 2 } },
+          }),
+        ],
+      }],
+    });
+
+    const buffer = await Packer.toBuffer(doc);
+    res.setHeader("Content-Disposition", `attachment; filename="receipt-${order.orderNumber}.docx"`);
+    res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.wordprocessingml.document");
+    res.send(buffer);
+  } catch (error) {
+    console.error("Receipt generation error:", error);
+    res.status(500).json({ message: "Failed to generate receipt" });
+  }
+});
+
+// ── End payment routes ──────────────────────────────────────────────────────
+
 router.put("/existingorder/:id",auth,RequestController.UpdateExistingRequest)
 
 router.put("/:id/approve", auth, async (req, res) => {
@@ -852,8 +1148,11 @@ router.put("/:id/approve", auth, async (req, res) => {
   const ip = req.headers["x-forwarded-for"] || req.socket.remoteAddress;
   const parser = new UAParser(req.headers["user-agent"]);
   const deviceInfo = parser.getResult();
- 
+  
+
+
   if (!user.canApprove) {
+    
     return res.status(403).json({ message: 'You are not authorized to approve requests' });
   }
 
@@ -903,7 +1202,29 @@ router.put("/:id/approve", auth, async (req, res) => {
         user => user.Reviewer.toString() !== approvingUser._id.toString()
       );
     }
-    
+
+    // A maintenance order is "fully approved" once every required approver has
+    // acted (no one left pending) and none of them rejected it. At that point,
+    // add its total to the chosen asset sub-category's expenditure — once only.
+    const noRejections = !order.Approvals.some(a => a.status === "Rejected");
+    const fullyApproved = order.PendingApprovals.length === 0 && noRejections;
+    if (order.isMaintenance && fullyApproved && !order.maintenanceExpenditureApplied) {
+      const amount = (order.products || []).reduce(
+        (sum, p) => sum + (Number(p.price) || 0) * (Number(p.quantity) || 1),
+        0
+      );
+      if (amount > 0 && order.assetSubCategory) {
+        await AssetExpenditure.findOneAndUpdate(
+          { category: order.assetCategory || 'waste_management', subCategory: order.assetSubCategory },
+          {
+            $inc: { totalExpenditure: amount, orderCount: 1 },
+            $push: { entries: { order: order._id, amount, at: new Date() } },
+          },
+          { upsert: true, new: true, setDefaultsOnInsert: true }
+        );
+        order.maintenanceExpenditureApplied = true;
+      }
+    }
 
     const prev_Request=await order.save();
     if(prev_Request.Approvals.length>3){
@@ -1086,6 +1407,27 @@ router.delete("/:id", async (req, res) => {
     if (!deletedOrder) {
       return res.status(404).json({ message: "Order not found" });
     }
+
+    if (deletedOrder.fileRefs) {
+      const fileDoc = await file.findById(deletedOrder.fileRefs);
+      if (fileDoc) {
+        await Promise.allSettled(
+          (fileDoc.files || []).map(async (f) => {
+            try {
+              if (f.gcsObjectName) {
+                await deleteFileFromCloud(f.gcsObjectName);
+              } else if (f.driveFileId) {
+                await deleteFileFromDrive(f.driveFileId);
+              }
+            } catch (err) {
+              console.error("Failed to delete attachment from storage:", err.message);
+            }
+          })
+        );
+        await file.findByIdAndDelete(deletedOrder.fileRefs);
+      }
+    }
+
     res.json({ message: "Order deleted successfully" });
   } catch (error) {
     res.status(500).json({ message: "Error deleting order", error });

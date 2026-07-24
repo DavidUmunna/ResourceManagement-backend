@@ -30,6 +30,10 @@ module.exports = {
       if (!tenderId) {
         return res.status(400).json({ success: false, message: "tenderId is required" });
       }
+      console.log("Fetching checklist for tenderId:", tenderId);
+      if(!tenderId.match(/^[0-9a-fA-F]{24}$/)){
+        return res.status(400).json({ success: false, message: "Invalid tenderId format" });
+      }
       const items = await tenderUploadService.listChecklist(tenderId);
       return res.json({ success: true, data: items });
     } catch (err) {

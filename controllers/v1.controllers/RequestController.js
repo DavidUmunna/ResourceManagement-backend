@@ -53,21 +53,26 @@ const GetOverallMonthlyRequests = async (req, res) => {
             $gte: startOfDay,
             $lte: endOfDay,
         };
-        const Requests = await PurchaseOrder.find(query).populate("staff")
+        const Requests = await PurchaseOrder.find(query).populate("staff", "name email Department -password").lean()
+
+        
         const filteredRequests=Requests.filter((request)=>{
-            const plainRequest=request.toObject()
+            
+            plainRequest=JSON.stringify(request, null, 2)
             if(Department){
-                return plainRequest.staff.Department===Department
+                return request.staff?.Department===Department
             }
             return true
         }
         
         )
+       
+        
         const totalDailyRequests=filteredRequests.length
  
 
         res.status(200).json({
-            message: "Total requests for today",
+            message: "Total requests for the month",
             total: filteredRequests.length,
             data: Department? filteredRequests:Requests
         });
@@ -268,18 +273,26 @@ const GetStaffResponses=async(req,res)=>{
 const ValidatePendingApprovals = async (requestId) => {
   try {
       const SecondLevel = ["human_resources", "internal_auditor"];
-      const Managers = ["Waste Management Manager", "Contracts_manager", "Financial_manager", "Environmental_lab_manager","Facility Manager"];
-    const DepartmentsWithManagers = ["waste_management_dep", "PVT", "Environmental_lab_dep"];
-    const MD_id = "6830789898ef43e5803ea02c";
+      const Managers = ["Waste Management Manager", "Contracts_manager", "Financial_manager", "Environmental_lab_manager","Facility Manager"];    
     const NewRequest = await PurchaseOrder.findById(requestId).populate("staff");
     if (!NewRequest) throw new Error("Request not found");
 
     const allUsers = await users.find().lean();
 
-    const filterApprovers = (department, requestOwnerRole) => {
+   const filterApprovers = (department, requestOwnerRole) => {
   return allUsers.filter(user => {
-    // --- EXCLUSION RULE ---
-    // Facility Manager cannot approve Waste Management Manager requests
+
+    // ❌ Exclude request owner
+    if (user._id.toString() === NewRequest.staff._id.toString()) {
+      return false;
+    }
+
+    // ❌ Exclude people on leave
+    if (user.WorkStatus === "On-Leave") {
+      return false;
+    }
+
+    // ❌ Special exclusion rule
     if (
       requestOwnerRole === "Waste Management Manager" &&
       user.role === "Facility Manager"
@@ -287,35 +300,52 @@ const ValidatePendingApprovals = async (requestId) => {
       return false;
     }
 
-    // --- EXISTING FILTERS ---
-    return (
-      (user.WorkStatus!=="On-Leave")&&
-      (
-        user._id.toString() !== NewRequest.staff._id.toString() || // allow only if MD
-        user._id.toString() === MD_id
-      ) &&
-      (
-        (user.canApprove && user.Department === department && user.role !== "global_admin") ||
-        (user.canApprove && !Managers.includes(user.role) && user.Department === department && user.role !== "global_admin") ||
-        SecondLevel.includes(user.role) ||
-        user._id.toString() === MD_id
-      )
-        );
-      });
-    };
+    // ✅ Level 1: Department approvers (Managers)
+    const isDepartmentManager =
+      user.canApprove &&
+      user.Department === department &&
+      Managers.includes(user.role);
 
+    // ✅ Level 2: Global/Second-level approvers
+    const isSecondLevel =
+      SecondLevel.includes(user.role)&& user.canApprove;
+
+    return isDepartmentManager || isSecondLevel;
+  });
+};
 
     const requiredApprovers = NewRequest.targetDepartment
     ? filterApprovers(NewRequest.targetDepartment, NewRequest.staff.role)
     : filterApprovers(NewRequest.staff.Department, NewRequest.staff.role);
 
+let finalApprovers=requiredApprovers;
 
-    NewRequest.PendingApprovals = requiredApprovers.map(user => {
-      let level = 1;
-      if (SecondLevel.includes(user.role)) level = 2;
-      if (user._id.toString() === MD_id) level = 3;
-      return { Reviewer: user._id, Level: level };
-    });
+if (requiredApprovers.length === 0) {
+  const fallbackApprovers = allUsers.filter(u =>
+    u.canApprove &&
+    u.WorkStatus !== "On-Leave" &&
+    u._id.toString() !== NewRequest.staff._id.toString()
+  );
+
+  if (fallbackApprovers.length === 0) {
+    throw new Error("No available approvers in the system.");
+  }
+
+  finalApprovers = fallbackApprovers;
+}
+
+  NewRequest.PendingApprovals = finalApprovers.map(user => {
+  let level = 1;
+
+  if (SecondLevel.includes(user.role)) {
+    level = 2;
+  }
+
+  return {
+    Reviewer: user._id,
+    Level: level
+  };
+});
 
     await NewRequest.save();
   } catch (error) {
@@ -323,102 +353,112 @@ const ValidatePendingApprovals = async (requestId) => {
   }
 };
 
-const UnresolvedOrders=async(req,res)=>{
-  try{
-    const {userId,Department,role}=req.user
-    const {page,limit,skip}=getPagination(req)
-    const {date}=req.query;
-    const query={}
-    console.log(req.query)
-    
-    if(date==="yesterday"){
-      query.createdAt=new Date(Date.now()-(24*60*60*1000))
-    }else if(date==="Last 7 Days"){
-      const yesterday=new Date(Date.now()-(24*60*60*1000))
-      const AweektoYesterday=new Date(Date.now()-7*24*60*60*1000)
-      query.createdAt={$gte:AweektoYesterday,$lte:yesterday}
-    }else if(date==="Last 30 Days"){
-      const yesterday=new Date(Date.now()-(24*60*60*1000))
-      const AMonthtoYesterday=new Date(Date.now()-30*24*60*60*1000)
-      query.createdAt={$gte:AMonthtoYesterday,$lte:yesterday}
-    }else if(date==="Last 365 Days"){
-      const yesterday=new Date(Date.now()-(24*60*60*1000))
-      const AYeartoYesterday=new Date(Date.now()-365*24*60*60*1000)
-      query.createdAt={$gte:AYeartoYesterday,$lte:yesterday}
+const UnresolvedOrders = async (req, res) => {
+  try {
+    const { userId, Department, role } = req.user;
+    const { page, limit, skip } = getPagination(req);
+    const { date } = req.query;
+
+    const query = {};
+
+    // ✅ Date filter (cleaned)
+    const now = Date.now();
+    const oneDay = 24 * 60 * 60 * 1000;
+
+    if (date === "yesterday") {
+      query.createdAt = {
+        $gte: new Date(now - oneDay),
+        $lte: new Date(now)
+      };
+    } else if (date === "Last 7 Days") {
+      query.createdAt = {
+        $gte: new Date(now - 7 * oneDay),
+        $lte: new Date(now)
+      };
+    } else if (date === "Last 30 Days") {
+      query.createdAt = {
+        $gte: new Date(now - 30 * oneDay),
+        $lte: new Date(now)
+      };
+    } else if (date === "Last 365 Days") {
+      query.createdAt = {
+        $gte: new Date(now - 365 * oneDay),
+        $lte: new Date(now)
+      };
     }
-    const Managers=["Waste Management Manager","Contracts_manager",
-    "Financial_manager","Environmental_lab_manager","Facility Manager"]
-    const subordinates=["Facility Manager","Waste Management Supervisor","lab_supervisor"]
-    let filteredOrders;
-    let paginatedOrders;
-    let total;
-    //console.log("query",query)
 
-    const orders=await PurchaseOrder.find(query).populate("staff", "-password -__v -role -canApprove -_id")
-           .populate("PendingApprovals.Reviewer","-password -__v ")
-           .populate("EditedBy","-password -__v")
-             .sort({ createdAt: -1 })
-             .skip(skip)
-             .limit(limit)      
-  
-
-
-    if(role=="Staff"){
-      return res.status(403).json({message:"you are not authorized to view "})
+    // ❌ Block staff early
+    if (role === "Staff") {
+      return res.status(403).json({ message: "Not authorized" });
     }
-    filteredOrders=orders
-    total=filteredOrders.length
-    paginatedOrders=filteredOrders.slice(skip,skip+limit)
-    if(Managers.includes(role)){
-      
-      filteredOrders=orders.filter(order => 
-        {if (!order.targetDepartment){
-          
-          return order.staff?.Department === Department
+
+    const Managers = [
+      "Waste Management Manager",
+      "Contracts_manager",
+      "Financial_manager",
+      "Environmental_lab_manager",
+      "Facility Manager"
+    ];
+
+    const subordinates = [
+      "Facility Manager",
+      "Waste Management Supervisor",
+      "lab_supervisor"
+    ];
+
+    // ✅ Fetch once (NO double pagination)
+    const orders = await PurchaseOrder.find(query)
+      .populate("staff", "-password -__v -role -canApprove -_id")
+      .populate("PendingApprovals.Reviewer", "-password -__v")
+      .populate("EditedBy", "-password -__v")
+      .sort({ createdAt: -1 });
+
+    // ✅ Role-based filtering
+    let filteredOrders = orders;
+
+    if (Managers.includes(role)) {
+      filteredOrders = orders.filter(order => {
+        if (!order.targetDepartment) {
+          return order.staff?.Department === Department;
         }
-        return order.targetDepartment===Department}
-      )
-    }else if(subordinates.includes(role)){
-      const NewFilteredOrders= filteredOrders.filter(order=>
-        !Managers.includes(order.staff.role)
-      )
-
-      total=NewFilteredOrders.length
-      paginatedOrders=NewFilteredOrders.slice(skip,skip+limit)
-
-    }else{
-      total=filteredOrders.length;
-      paginatedOrders=filteredOrders.slice(skip,skip+limit)
+        return order.targetDepartment === Department;
+      });
+    } else if (subordinates.includes(role)) {
+      filteredOrders = orders.filter(order =>
+        !Managers.includes(order.staff?.role)
+      );
     }
-    //console.log("paginated",paginatedOrders)
 
-  const response = paginatedOrders.filter(order => {
-  const plainOrder = order.toObject();
+    // ✅ Approval filtering (core logic)
+    const actionableOrders = filteredOrders.filter(order => {
+      if (!order.PendingApprovals || order.PendingApprovals.length === 0) {
+        return false;
+      }
 
-  // Find the minimum level in PendingApprovals
-  const minLevel = Math.min(...plainOrder.PendingApprovals.map(a => a.Level));
+      const minLevel = Math.min(...order.PendingApprovals.map(a => a.Level));
 
-  // Return true if the user is one of the reviewers at that minimum level
-  return plainOrder.PendingApprovals.some(user_ => {
-    const reviewerId = user_.Reviewer?._id?.toString() || user_.Reviewer?.toString();
-    return user_.Level === minLevel && reviewerId === userId.toString();
-  });
-  });
+      return order.PendingApprovals.some(a => {
+        const reviewerId =
+          a.Reviewer?._id?.toString() || a.Reviewer?.toString();
 
+        return a.Level === minLevel && reviewerId === userId.toString();
+      });
+    });
 
-   
+    // ✅ Pagination happens LAST (correct way)
+    const total = actionableOrders.length;
+    const paginatedOrders = actionableOrders.slice(skip, skip + limit);
 
+    res.json({
+      data: paginatedOrders,
+      Pagination: getPagingData(total, page, limit)
+    });
 
-    res.json({data:response,
-      Pagination:getPagingData(total,page,limit)});
-
-  }catch(error){
-    console.error("an error occured here",error)
-    res.status(500).json({message:"there was an error"})
+  } catch (error) {
+    console.error("Error fetching unresolved orders:", error);
+    res.status(500).json({ message: "There was an error" });
   }
-}
-
-
+};
 
 
 

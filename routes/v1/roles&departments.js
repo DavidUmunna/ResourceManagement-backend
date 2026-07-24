@@ -60,6 +60,23 @@ router.post("/",auth,monitorLogger,async(req,res)=>{
          "Financial_manager","Waste Management Manager","Waste Management Supervisor","Accountant","lab_supervisor","Director","Environmental_lab_manager","PVT_manager","staff",
          "Contracts_manager","Documentation_officer","Engineering_manager","QHSE Coordinator", "Logistics Manager", "Facility Manager"]
         }
+        // Departments allowed to raise maintenance purchase requests, and the
+        // asset category each maps to. Source of truth for the maintenance flow.
+        if (item.MAINTENANCE_ASSET_ACCESS){
+            rbac_object["MAINTENANCE_ASSET_ACCESS"]={
+                departments: ["waste_management_dep","IT"],
+                categoryByDepartment: { "waste_management_dep": "waste_management" }
+            }
+        }
+        if (item.LEAVE_SUMMARY_ROLES){
+            rbac_object["LEAVE_SUMMARY_ROLES"]=["Director","global_admin"]
+        }
+        if (item.LEAVE_ADMIN_ROLES){
+            rbac_object["LEAVE_ADMIN_ROLES"]=["admin","global_admin"]
+        }
+        if (item.FEEDBACK_ADMIN_ROLES){
+            rbac_object["FEEDBACK_ADMIN_ROLES"]=["global_admin"]
+        }
        
         
         res.status(200).json({message:"items Delivered",data:rbac_object})
