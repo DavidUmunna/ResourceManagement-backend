@@ -726,16 +726,27 @@ describe('POST /api/orders — maintenance requests', () => {
     );
   });
 
-  it('defaults assetCategory to waste_management when omitted', async () => {
+  it('returns 400 when a maintenance request has no assetCategory', async () => {
     const { assetCategory, ...body } = MAINT_BODY;
     const res = await request(buildApp())
       .post('/api/orders')
       .set('Cookie', ['sessionId=s1'])
       .send(body);
 
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/assetCategory .* required/i);
+    expect(mockSave).not.toHaveBeenCalled();
+  });
+
+  it('persists a non-waste (IT) maintenance order under its own category', async () => {
+    const res = await request(buildApp())
+      .post('/api/orders')
+      .set('Cookie', ['sessionId=s1'])
+      .send({ ...MAINT_BODY, assetCategory: 'IT_equipment', assetSubCategory: 'Laptops' });
+
     expect(res.status).toBe(200);
     expect(PurchaseOrder).toHaveBeenCalledWith(
-      expect.objectContaining({ assetCategory: 'waste_management', assetSubCategory: 'Compactors' })
+      expect.objectContaining({ assetCategory: 'IT_equipment', assetSubCategory: 'Laptops' })
     );
   });
 
@@ -747,7 +758,7 @@ describe('POST /api/orders — maintenance requests', () => {
       .send(body);
 
     expect(res.status).toBe(400);
-    expect(res.body.error).toMatch(/assetSubCategory is required/i);
+    expect(res.body.error).toMatch(/assetSubCategory .* required/i);
     expect(mockSave).not.toHaveBeenCalled();
   });
 

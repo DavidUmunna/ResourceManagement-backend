@@ -380,8 +380,8 @@ router.post("/", auth, async (req, res) => {
     }
 
     // A maintenance request must name the asset sub-category it applies to
-    if (isMaintenance && !assetSubCategory) {
-      return res.status(400).json({ error: "assetSubCategory is required for a maintenance request" });
+    if (isMaintenance && (!assetSubCategory || !assetCategory)) {
+      return res.status(400).json({ error: "assetCategory and assetSubCategory are required for a maintenance request" });
     }
 
     const User = await user.findOne({ email });
@@ -407,7 +407,7 @@ router.post("/", auth, async (req, res) => {
       fileRefs: req.body.fileRefs,
       targetDepartment,
       isMaintenance: !!isMaintenance,
-      ...(isMaintenance && { assetCategory: assetCategory || 'waste_management', assetSubCategory }),
+      ...(isMaintenance && { assetCategory, assetSubCategory }),
     });
 
     const new_Request = await newOrder.save();
@@ -1213,9 +1213,9 @@ router.put("/:id/approve", auth, async (req, res) => {
         (sum, p) => sum + (Number(p.price) || 0) * (Number(p.quantity) || 1),
         0
       );
-      if (amount > 0 && order.assetSubCategory) {
+      if (amount > 0 && order.assetSubCategory && order.assetCategory) {
         await AssetExpenditure.findOneAndUpdate(
-          { category: order.assetCategory || 'waste_management', subCategory: order.assetSubCategory },
+          { category: order.assetCategory, subCategory: order.assetSubCategory },
           {
             $inc: { totalExpenditure: amount, orderCount: 1 },
             $push: { entries: { order: order._id, amount, at: new Date() } },

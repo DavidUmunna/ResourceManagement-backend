@@ -65,7 +65,7 @@ router.post("/",auth,monitorLogger,async(req,res)=>{
         if (item.MAINTENANCE_ASSET_ACCESS){
             rbac_object["MAINTENANCE_ASSET_ACCESS"]={
                 departments: ["waste_management_dep","IT"],
-                categoryByDepartment: { "waste_management_dep": "waste_management" }
+                categoryByDepartment: { "waste_management_dep": "waste_management", "IT": "IT_equipment" }
             }
         }
         if (item.LEAVE_SUMMARY_ROLES){

@@ -46,8 +46,13 @@ describe('POST /api/roles&departments — RBAC access lists', () => {
 
     expect(res.status).toBe(200);
     const access = res.body.data.MAINTENANCE_ASSET_ACCESS;
-    expect(access.departments).toContain('waste_management_dep');
+    expect(access.departments).toEqual(expect.arrayContaining(['waste_management_dep', 'IT']));
     expect(access.categoryByDepartment.waste_management_dep).toBe('waste_management');
+    // Every allowed department must map to an asset category, else the flow breaks
+    expect(access.categoryByDepartment.IT).toBe('IT_equipment');
+    access.departments.forEach((dep) => {
+      expect(access.categoryByDepartment[dep]).toBeTruthy();
+    });
   });
 
   it('returns the leave summary and leave admin role lists', async () => {
