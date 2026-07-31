@@ -45,15 +45,26 @@ function renderPurchaseOrderPdf(doc, order) {
   const products = Array.isArray(order.products) ? order.products : [];
   const total = products.reduce((s, p) => s + (Number(p.price) || 0) * (Number(p.quantity) || 1), 0);
 
-  // Header
-  doc.fontSize(20).fillColor("#1f2937").text("Halden Group");
-  doc.fontSize(13).fillColor("#4b5563").text("Purchase Order");
+  // Header — logo and company name side by side
+  const logoPath = path.join(__dirname, 'assets', 'haldenlogo_1.png');
+  const headerY = doc.y;
+  if (fs.existsSync(logoPath)) {
+    doc.image(logoPath, 40, headerY, { width: 48, height: 48 });
+    doc.fontSize(20).fillColor("#1f2937").text("Halden Group", 98, headerY + 4);
+    doc.fontSize(13).fillColor("#4b5563").text("Purchase Order", 98, headerY + 28);
+    doc.y = headerY + 54;
+  } else {
+    doc.fontSize(20).fillColor("#1f2937").text("Halden Group");
+    doc.fontSize(13).fillColor("#4b5563").text("Purchase Order");
+  }
   doc.moveDown(0.4);
   doc.moveTo(40, doc.y).lineTo(555, doc.y).strokeColor("#e5e7eb").stroke();
   doc.moveDown(0.8);
 
   // Meta (two columns)
+  // rowY adds an extra 14pt gap after "Title" (index 1) before "Requested by" (index 2)
   const startY = doc.y;
+  const rowY = (i) => startY + i * 20 + (i >= 2 ? 14 : 0);
   const left = [
     ["PO Number", `#${order.orderNumber || "—"}`],
     ["Title", order.Title || "—"],
@@ -68,14 +79,14 @@ function renderPurchaseOrderPdf(doc, order) {
   ];
   doc.fontSize(10);
   left.forEach(([k, v], i) => {
-    doc.fillColor("#6b7280").text(`${k}:`, 40, startY + i * 18, { continued: true, width: 250 });
+    doc.fillColor("#6b7280").text(`${k}:`, 40, rowY(i), { continued: true, width: 250 });
     doc.fillColor("#111827").text(` ${v}`);
   });
   right.forEach(([k, v], i) => {
-    doc.fillColor("#6b7280").text(`${k}:`, 310, startY + i * 18, { continued: true, width: 245 });
+    doc.fillColor("#6b7280").text(`${k}:`, 310, rowY(i), { continued: true, width: 245 });
     doc.fillColor("#111827").text(` ${v}`);
   });
-  doc.y = startY + left.length * 18 + 14;
+  doc.y = rowY(left.length) + 14;
 
   // Items
   doc.fontSize(12).fillColor("#111827").text("Items", 40);
