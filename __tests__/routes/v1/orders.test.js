@@ -2,6 +2,10 @@ const express = require('express');
 const request = require('supertest');
 const cookieParser = require('cookie-parser');
 
+// Deterministic secret so the share-link token can be signed/verified in tests
+process.env.JWT_SECRET = process.env.JWT_SECRET || 'test-secret';
+const jwt = require('jsonwebtoken');
+
 // ── Mock Redis before auth middleware loads ──────────────────────────────────
 const mockRedisClient = {
   connect: jest.fn().mockResolvedValue(),
@@ -879,5 +883,108 @@ describe('PUT /api/orders/:id/approve — maintenance expenditure', () => {
 
     expect(res.status).toBe(200);
     expect(AssetExpenditure.findOneAndUpdate).not.toHaveBeenCalled();
+  });
+});
+
+// ── PO share link (mint + public PDF) ────────────────────────────────────────
+describe('PO share link', () => {
+  const fullOrder = {
+    _id: 'order-001',
+    orderNumber: 'PO-001',
+    Title: 'Compactor repair',
+    staff: { name: 'John Staff', email: 'john@test.com', Department: 'waste_management_dep' },
+    Department: 'waste_management_dep',
+    urgency: 'Urgent',
+    supplier: 'Acme',
+    status: 'Pending',
+    createdAt: new Date('2026-02-10'),
+    products: [{ name: 'Seal', quantity: 2, price: 1000 }],
+    remarks: 'Needs servicing',
+    Approvals: [{ admin: 'Admin User', status: 'Approved', comment: 'ok', timestamp: new Date('2026-02-11') }],
+  };
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockRedisClient.connect.mockResolvedValue();
+    mockRedisClient.expire.mockResolvedValue();
+    mockRedisClient.get.mockResolvedValue(STAFF_SESSION);
+  });
+
+  // ── POST /api/orders/:id/share-link ─────────────────────────────────────────
+  describe('POST /api/orders/:id/share-link', () => {
+    it('mints a link whose token encodes the orderId and purpose', async () => {
+      PurchaseOrder.findById = jest.fn().mockResolvedValue({ _id: 'order-001', orderNumber: 'PO-001' });
+
+      const res = await request(buildApp())
+        .post('/api/orders/order-001/share-link')
+        .set('Cookie', ['sessionId=s1']);
+
+      expect(res.status).toBe(200);
+      expect(res.body.url).toMatch(/\/api\/orders\/share\/.+\/pdf$/);
+
+      const token = res.body.url.match(/share\/(.+)\/pdf/)[1];
+      const decoded = jwt.verify(token, process.env.JWT_SECRET);
+      expect(decoded.orderId).toBe('order-001');
+      expect(decoded.purpose).toBe('po-share');
+    });
+
+    it('returns 404 when the order does not exist', async () => {
+      PurchaseOrder.findById = jest.fn().mockResolvedValue(null);
+
+      const res = await request(buildApp())
+        .post('/api/orders/nope/share-link')
+        .set('Cookie', ['sessionId=s1']);
+
+      expect(res.status).toBe(404);
+    });
+
+    it('returns 401 when unauthenticated', async () => {
+      mockRedisClient.get.mockResolvedValue(null);
+
+      const res = await request(buildApp()).post('/api/orders/order-001/share-link');
+
+      expect(res.status).toBe(401);
+    });
+  });
+
+  // ── GET /api/orders/share/:token/pdf (public) ───────────────────────────────
+  describe('GET /api/orders/share/:token/pdf', () => {
+    const sign = (payload, opts = {}) => jwt.sign(payload, process.env.JWT_SECRET, opts);
+
+    it('serves a PDF for a valid token — no auth required', async () => {
+      mockRedisClient.get.mockResolvedValue(null); // prove it is public
+      PurchaseOrder.findById = jest.fn().mockReturnValue({ populate: jest.fn().mockResolvedValue(fullOrder) });
+      const token = sign({ orderId: 'order-001', purpose: 'po-share' }, { expiresIn: '7d' });
+
+      const res = await request(buildApp()).get(`/api/orders/share/${token}/pdf`);
+
+      expect(res.status).toBe(200);
+      expect(res.headers['content-type']).toMatch(/application\/pdf/);
+    });
+
+    it('returns 410 for an expired/invalid token', async () => {
+      const token = sign({ orderId: 'order-001', purpose: 'po-share' }, { expiresIn: -10 });
+
+      const res = await request(buildApp()).get(`/api/orders/share/${token}/pdf`);
+
+      expect(res.status).toBe(410);
+    });
+
+    it('returns 400 for a token with the wrong purpose', async () => {
+      const token = sign({ orderId: 'order-001', purpose: 'something-else' }, { expiresIn: '7d' });
+
+      const res = await request(buildApp()).get(`/api/orders/share/${token}/pdf`);
+
+      expect(res.status).toBe(400);
+    });
+
+    it('returns 404 when the order no longer exists', async () => {
+      PurchaseOrder.findById = jest.fn().mockReturnValue({ populate: jest.fn().mockResolvedValue(null) });
+      const token = sign({ orderId: 'gone', purpose: 'po-share' }, { expiresIn: '7d' });
+
+      const res = await request(buildApp()).get(`/api/orders/share/${token}/pdf`);
+
+      expect(res.status).toBe(404);
+    });
   });
 });

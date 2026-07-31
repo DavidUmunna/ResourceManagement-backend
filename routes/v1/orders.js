@@ -2,6 +2,8 @@ const { Router } = require("express");
 const mongoose = require("mongoose");
 const PurchaseOrder = require("../../models/PurchaseOrder");
 const AssetExpenditure = require("../../models/AssetExpenditure");
+const jwt = require("jsonwebtoken");
+const PDFDocument = require("pdfkit");
 const multer = require("multer");
 const path = require("path");
 const user=require("../../models/users_")
@@ -32,6 +34,149 @@ const { CreateSignature } = require("../../controllers/v1.controllers/Signature_
 const { sendPushNotification } = require("../../Global_Functions/firebasePushNotification");
 const { deleteFileFromCloud } = require("../../googlecloudstorage.service");
 const { deleteFileFromDrive } = require("../../googledriveservice");
+
+// ── PO share link (public, tokenized PDF) ────────────────────────────────────
+
+// Render the purchase order into a pdfkit document
+function renderPurchaseOrderPdf(doc, order) {
+  const money = (n) => `NGN ${Number(n || 0).toLocaleString()}`;
+  const staffName = order.staff?.name || order.orderedBy || "—";
+  const dept = order.staff?.Department || order.Department || "—";
+  const products = Array.isArray(order.products) ? order.products : [];
+  const total = products.reduce((s, p) => s + (Number(p.price) || 0) * (Number(p.quantity) || 1), 0);
+
+  // Header
+  doc.fontSize(20).fillColor("#1f2937").text("Halden Group");
+  doc.fontSize(13).fillColor("#4b5563").text("Purchase Order");
+  doc.moveDown(0.4);
+  doc.moveTo(40, doc.y).lineTo(555, doc.y).strokeColor("#e5e7eb").stroke();
+  doc.moveDown(0.8);
+
+  // Meta (two columns)
+  const startY = doc.y;
+  const left = [
+    ["PO Number", `#${order.orderNumber || "—"}`],
+    ["Title", order.Title || "—"],
+    ["Requested by", staffName],
+    ["Department", dept],
+  ];
+  const right = [
+    ["Status", order.status || "—"],
+    ["Urgency", order.urgency || "—"],
+    ["Supplier", order.supplier || "—"],
+    ["Date", order.createdAt ? new Date(order.createdAt).toLocaleDateString("en-GB") : "—"],
+  ];
+  doc.fontSize(10);
+  left.forEach(([k, v], i) => {
+    doc.fillColor("#6b7280").text(`${k}:`, 40, startY + i * 18, { continued: true, width: 250 });
+    doc.fillColor("#111827").text(` ${v}`);
+  });
+  right.forEach(([k, v], i) => {
+    doc.fillColor("#6b7280").text(`${k}:`, 310, startY + i * 18, { continued: true, width: 245 });
+    doc.fillColor("#111827").text(` ${v}`);
+  });
+  doc.y = startY + left.length * 18 + 14;
+
+  // Items
+  doc.fontSize(12).fillColor("#111827").text("Items", 40);
+  doc.moveDown(0.3);
+  const t = doc.y;
+  const col = { name: 40, qty: 330, price: 390, total: 480 };
+  doc.fontSize(9).fillColor("#6b7280");
+  doc.text("Description", col.name, t);
+  doc.text("Qty", col.qty, t);
+  doc.text("Unit Price", col.price, t);
+  doc.text("Total", col.total, t);
+  doc.moveTo(40, t + 13).lineTo(555, t + 13).strokeColor("#e5e7eb").stroke();
+  let y = t + 19;
+  doc.fontSize(10).fillColor("#111827");
+  products.forEach((p) => {
+    const qty = Number(p.quantity) || 1;
+    const price = Number(p.price) || 0;
+    doc.fillColor("#111827").text(p.name || "—", col.name, y, { width: 280 });
+    doc.text(String(qty), col.qty, y);
+    doc.text(money(price), col.price, y);
+    doc.text(money(price * qty), col.total, y);
+    y += 20;
+  });
+  doc.moveTo(40, y).lineTo(555, y).strokeColor("#e5e7eb").stroke();
+  doc.fontSize(11).fillColor("#111827").font("Helvetica-Bold")
+    .text(`Grand Total: ${money(total)}`, 40, y + 8, { align: "right", width: 515 });
+  doc.font("Helvetica");
+  doc.y = y + 34;
+
+  // Remarks
+  if (order.remarks) {
+    doc.fontSize(12).fillColor("#111827").text("Remarks", 40);
+    doc.fontSize(10).fillColor("#374151").text(order.remarks, { width: 515 });
+    doc.moveDown(0.6);
+  }
+
+  // Approvals (names + decision + date; no signature images)
+  const approvals = Array.isArray(order.Approvals) ? order.Approvals : [];
+  doc.fontSize(12).fillColor("#111827").text("Approvals", 40);
+  doc.moveDown(0.3);
+  if (approvals.length === 0) {
+    doc.fontSize(10).fillColor("#6b7280").text("No approvals recorded yet.");
+  } else {
+    approvals.forEach((a) => {
+      const when = a.timestamp ? new Date(a.timestamp).toLocaleDateString("en-GB") : "";
+      doc.fontSize(10).fillColor("#111827").text(`${a.admin || "—"} — ${a.status || "—"}${when ? ` (${when})` : ""}`);
+      if (a.comment) doc.fontSize(9).fillColor("#6b7280").text(`   ${a.comment}`, { width: 500 });
+    });
+  }
+
+  doc.fontSize(8).fillColor("#9ca3af")
+    .text(`Generated ${new Date().toLocaleString("en-GB")} · Shared read-only copy.`, 40, 790, { align: "center", width: 515 });
+}
+
+// Authenticated user mints a 7-day public link to the PO PDF
+router.post("/:id/share-link", auth, async (req, res) => {
+  try {
+    const order = await PurchaseOrder.findById(req.params.id);
+    if (!order) return res.status(404).json({ message: "Order not found" });
+
+    const token = jwt.sign(
+      { orderId: order._id.toString(), purpose: "po-share" },
+      process.env.JWT_SECRET,
+      { expiresIn: "7d" }
+    );
+    const proto = req.headers["x-forwarded-proto"] || req.protocol;
+    const base = process.env.PUBLIC_API_URL || `${proto}://${req.get("host")}`;
+    return res.status(200).json({ success: true, url: `${base}/api/orders/share/${token}/pdf` });
+  } catch (error) {
+    console.error("Error creating PO share link:", error);
+    return res.status(500).json({ message: "Failed to create share link" });
+  }
+});
+
+// Public — anyone with a valid token can view the PO as a PDF (no login)
+router.get("/share/:token/pdf", async (req, res) => {
+  try {
+    let payload;
+    try {
+      payload = jwt.verify(req.params.token, process.env.JWT_SECRET);
+    } catch {
+      return res.status(410).send("This purchase-order link has expired or is invalid.");
+    }
+    if (payload.purpose !== "po-share") return res.status(400).send("Invalid link.");
+
+    const order = await PurchaseOrder.findById(payload.orderId).populate("staff", "name email Department");
+    if (!order) return res.status(404).send("Purchase order not found.");
+
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", `inline; filename="PO-${order.orderNumber || order._id}.pdf"`);
+    res.setHeader("Cache-Control", "no-store");
+
+    const doc = new PDFDocument({ margin: 40, size: "A4" });
+    doc.pipe(res);
+    renderPurchaseOrderPdf(doc, order);
+    doc.end();
+  } catch (error) {
+    console.error("Error rendering PO PDF:", error);
+    if (!res.headersSent) res.status(500).send("Failed to render the purchase order.");
+  }
+});
 
 router.get("/reviewed",auth,RequestController.ReviewedRequests)
 router.delete("/:id/staffresponse",auth,RequestController.DeleteStaffResponse)
