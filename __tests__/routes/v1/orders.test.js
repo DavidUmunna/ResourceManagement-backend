@@ -988,3 +988,91 @@ describe('PO share link', () => {
     });
   });
 });
+
+// ── GET /api/orders/duplicates — server-side detection ───────────────────────
+describe('GET /api/orders/duplicates', () => {
+  const mockOrders = (orders) => {
+    PurchaseOrder.find = jest.fn().mockReturnValue({
+      sort: () => ({ limit: () => ({ populate: () => ({ lean: () => Promise.resolve(orders) }) }) }),
+    });
+  };
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockRedisClient.connect.mockResolvedValue();
+    mockRedisClient.expire.mockResolvedValue();
+    mockRedisClient.get.mockResolvedValue(STAFF_SESSION);
+  });
+
+  it('groups orders that share an identical product bundle (regardless of remarks)', async () => {
+    mockOrders([
+      { _id: 'a', products: [{ name: 'Gloves', quantity: 10 }], remarks: 'alpha' },
+      { _id: 'b', products: [{ name: 'Gloves', quantity: 10 }], remarks: 'completely unrelated words' },
+      { _id: 'c', products: [{ name: 'Masks', quantity: 5 }], remarks: 'solo order' },
+    ]);
+
+    const res = await request(buildApp()).get('/api/orders/duplicates').set('Cookie', ['sessionId=s1']);
+
+    expect(res.status).toBe(200);
+    expect(res.body.data).toHaveLength(1);
+    expect(res.body.data[0].map((o) => o._id).sort()).toEqual(['a', 'b']);
+  });
+
+  it('groups orders with similar remarks', async () => {
+    mockOrders([
+      { _id: 'a', products: [], remarks: 'need urgent laptop for the new office' },
+      { _id: 'b', products: [], remarks: 'need urgent laptop for the new office' },
+    ]);
+
+    const res = await request(buildApp()).get('/api/orders/duplicates?threshold=0.7').set('Cookie', ['sessionId=s1']);
+
+    expect(res.status).toBe(200);
+    expect(res.body.data).toHaveLength(1);
+  });
+
+  it('does NOT group two orders that both have empty products and different remarks (regression)', async () => {
+    mockOrders([
+      { _id: 'a', products: [], remarks: 'apples' },
+      { _id: 'b', products: [], remarks: 'zebras' },
+    ]);
+
+    const res = await request(buildApp()).get('/api/orders/duplicates').set('Cookie', ['sessionId=s1']);
+
+    expect(res.status).toBe(200);
+    expect(res.body.data).toHaveLength(0);
+  });
+
+  it('groups transitively: A~B (products) and B~C (remarks) → one group of 3', async () => {
+    mockOrders([
+      { _id: 'a', products: [{ name: 'X', quantity: 1 }], remarks: 'foo' },
+      { _id: 'b', products: [{ name: 'X', quantity: 1 }], remarks: 'bar baz qux quux' },
+      { _id: 'c', products: [{ name: 'Y', quantity: 2 }], remarks: 'bar baz qux quux' },
+    ]);
+
+    const res = await request(buildApp()).get('/api/orders/duplicates?threshold=0.9').set('Cookie', ['sessionId=s1']);
+
+    expect(res.status).toBe(200);
+    expect(res.body.data).toHaveLength(1);
+    expect(res.body.data[0].map((o) => o._id).sort()).toEqual(['a', 'b', 'c']);
+  });
+
+  it('returns an empty array when there are no duplicates', async () => {
+    mockOrders([
+      { _id: 'a', products: [{ name: 'X', quantity: 1 }], remarks: 'apples oranges' },
+      { _id: 'b', products: [{ name: 'Y', quantity: 2 }], remarks: 'cars trucks' },
+    ]);
+
+    const res = await request(buildApp()).get('/api/orders/duplicates').set('Cookie', ['sessionId=s1']);
+
+    expect(res.status).toBe(200);
+    expect(res.body.data).toHaveLength(0);
+  });
+
+  it('returns 401 when unauthenticated', async () => {
+    mockRedisClient.get.mockResolvedValue(null);
+
+    const res = await request(buildApp()).get('/api/orders/duplicates');
+
+    expect(res.status).toBe(401);
+  });
+});

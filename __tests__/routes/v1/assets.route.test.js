@@ -41,14 +41,29 @@ function buildApp() {
   return app;
 }
 
-// Chainable find().sort().lean()
+// Chainable find().sort().lean()  (used by /stats)
 function chainableFind(result) {
   return { sort: () => ({ lean: () => Promise.resolve(result) }) };
 }
+// Chainable find().sort().populate().lean()  (used by /expenditure)
+function chainablePopulate(result) {
+  return { sort: () => ({ populate: () => ({ lean: () => Promise.resolve(result) }) }) };
+}
 
 const EXP_RECORDS = [
-  { category: 'waste_management', subCategory: 'Compactors', totalExpenditure: 5000, orderCount: 2, updatedAt: new Date('2026-02-10') },
-  { category: 'waste_management', subCategory: 'Trucks',     totalExpenditure: 3000, orderCount: 1, updatedAt: new Date('2026-02-15') },
+  {
+    category: 'waste_management', subCategory: 'Compactors', totalExpenditure: 5000, orderCount: 2, updatedAt: new Date('2026-02-10'),
+    entries: [
+      { amount: 2000, at: new Date('2026-02-05'), order: { orderNumber: 'PO-1', Title: 'Hydraulics', remarks: 'hydraulic seal replacement' } },
+      { amount: 3000, at: new Date('2026-02-10'), order: { orderNumber: 'PO-2', Title: 'Motor', remarks: 'motor repair' } },
+    ],
+  },
+  {
+    category: 'waste_management', subCategory: 'Trucks', totalExpenditure: 3000, orderCount: 1, updatedAt: new Date('2026-02-15'),
+    entries: [
+      { amount: 3000, at: new Date('2026-02-15'), order: { orderNumber: 'PO-3', Title: 'Tyres', remarks: 'tyre change' } },
+    ],
+  },
 ];
 
 describe('Asset expenditure endpoints', () => {
@@ -65,7 +80,7 @@ describe('Asset expenditure endpoints', () => {
   // ── GET /api/assets/expenditure ─────────────────────────────────────────────
   describe('GET /api/assets/expenditure', () => {
     it('returns all-time expenditure with a total when no dates are given', async () => {
-      AssetExpenditure.find.mockReturnValue(chainableFind(EXP_RECORDS));
+      AssetExpenditure.find.mockReturnValue(chainablePopulate(EXP_RECORDS));
 
       const res = await request(buildApp())
         .get('/api/assets/expenditure')
@@ -79,43 +94,57 @@ describe('Asset expenditure endpoints', () => {
         totalExpenditure: 5000,
         orderCount: 2,
       });
-      // date comes from the record's updatedAt
       expect(res.body.data.expenditureBySubCategory[0].lastExpenseAt).toBeTruthy();
-      expect(AssetExpenditure.aggregate).not.toHaveBeenCalled();
     });
 
-    it('aggregates entries within a date range when dates are given', async () => {
-      AssetExpenditure.aggregate.mockResolvedValue([
-        { _id: { category: 'waste_management', subCategory: 'Compactors' }, totalExpenditure: 2000, orderCount: 1, lastExpenseAt: new Date('2026-02-12') },
-      ]);
+    it('includes each entry with the order title and remark (newest first)', async () => {
+      AssetExpenditure.find.mockReturnValue(chainablePopulate(EXP_RECORDS));
 
       const res = await request(buildApp())
-        .get('/api/assets/expenditure?startDate=2026-02-01&endDate=2026-02-28')
+        .get('/api/assets/expenditure')
+        .set('Cookie', ['sessionId=s1']);
+
+      const compactors = res.body.data.expenditureBySubCategory[0];
+      expect(compactors.entries).toHaveLength(2);
+      // sorted newest first → PO-2 (2026-02-10) before PO-1 (2026-02-05)
+      expect(compactors.entries[0]).toMatchObject({
+        orderNumber: 'PO-2',
+        title: 'Motor',            // shown as the reason
+        remark: 'motor repair',    // requester's remarks kept
+        amount: 3000,
+      });
+      expect(compactors.entries[1].remark).toBe('hydraulic seal replacement');
+      expect(compactors.entries[1].title).toBe('Hydraulics');
+    });
+
+    it('filters entries to the given date range and recomputes totals', async () => {
+      AssetExpenditure.find.mockReturnValue(chainablePopulate(EXP_RECORDS));
+
+      // From 2026-02-08 → Compactors keeps only its 02-10 entry (3000), Trucks keeps its 02-15 (3000)
+      const res = await request(buildApp())
+        .get('/api/assets/expenditure?startDate=2026-02-08&endDate=2026-02-28')
         .set('Cookie', ['sessionId=s1']);
 
       expect(res.status).toBe(200);
-      expect(AssetExpenditure.aggregate).toHaveBeenCalledTimes(1);
-      expect(AssetExpenditure.find).not.toHaveBeenCalled();
-      expect(res.body.data.totalExpenditure).toBe(2000);
-      expect(res.body.data.expenditureBySubCategory[0]).toMatchObject({
-        category: 'waste_management',
-        subCategory: 'Compactors',
-        totalExpenditure: 2000,
-      });
+      expect(res.body.data.totalExpenditure).toBe(6000);
+      const compactors = res.body.data.expenditureBySubCategory.find((r) => r.subCategory === 'Compactors');
+      expect(compactors.totalExpenditure).toBe(3000);
+      expect(compactors.orderCount).toBe(1);
+      expect(compactors.entries).toHaveLength(1);
+      expect(compactors.entries[0].orderNumber).toBe('PO-2');
     });
 
-    it('applies a $match on entries.at built from the date range', async () => {
-      AssetExpenditure.aggregate.mockResolvedValue([]);
+    it('drops sub-categories with no entries in the selected period', async () => {
+      AssetExpenditure.find.mockReturnValue(chainablePopulate(EXP_RECORDS));
 
-      await request(buildApp())
-        .get('/api/assets/expenditure?startDate=2026-02-01&endDate=2026-02-28')
+      // A window before any entry → everything filtered out
+      const res = await request(buildApp())
+        .get('/api/assets/expenditure?startDate=2020-01-01&endDate=2020-12-31')
         .set('Cookie', ['sessionId=s1']);
 
-      const pipeline = AssetExpenditure.aggregate.mock.calls[0][0];
-      const matchStage = pipeline.find(s => s.$match && s.$match['entries.at']);
-      expect(matchStage).toBeTruthy();
-      expect(matchStage.$match['entries.at'].$gte).toBeInstanceOf(Date);
-      expect(matchStage.$match['entries.at'].$lte).toBeInstanceOf(Date);
+      expect(res.status).toBe(200);
+      expect(res.body.data.expenditureBySubCategory).toHaveLength(0);
+      expect(res.body.data.totalExpenditure).toBe(0);
     });
 
     it('returns 401 when unauthenticated', async () => {

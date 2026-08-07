@@ -268,11 +268,11 @@ router.post("/create",auth,async(req,res)=>{
             Quantity,WasteStream,
             WasteSource,DispatchManifestNo,
             WasteTruckRegNo,
-            DemobilizationOfFilledSkips,WasteDriverName,
+            WasteTruckDriverName,
+            DemobilizationOfFilledSkips,
             DateFilled}=req.body
-            //console.log("dateMobilized",DateMobilized)
             if (!skip_id){
-                res.status(403).json({message:"missing values in query"})
+                return res.status(403).json({message:"missing values in query"})
             }
             const NormalizedDateMobilized=normalizeDate(DateMobilized)
             const NormalizedDateRecievedOnLocation=normalizeDate(DateReceivedOnLocation)
@@ -284,13 +284,13 @@ router.post("/create",auth,async(req,res)=>{
                 DateMobilized:NormalizedDateMobilized,
                 DateReceivedOnLocation:NormalizedDateRecievedOnLocation,
                 SkipsTruckRegNo,
-                SkipsTruckDriver, 
+                SkipsTruckDriver,
                 Quantity,WasteStream,
                 WasteSource,DispatchManifestNo,
                 WasteTruckRegNo,
+                WasteTruckDriverName,
                 DemobilizationOfFilledSkips:NormalizedDemob,
                 DateFilled:NormailizedFilled
-                ,WasteDriverName
             })
             //console.log("new skip item",new_skipItem)
             

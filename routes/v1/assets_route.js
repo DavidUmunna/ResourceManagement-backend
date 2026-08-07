@@ -227,42 +227,45 @@ router.get('/stats', auth, async (req, res) => {
 router.get('/expenditure', auth, async (req, res) => {
   try {
     const { startDate, endDate } = req.query;
-    const hasRange = startDate || endDate;
+    const start = startDate ? new Date(startDate) : null;
+    const end   = endDate ? new Date(endDate) : null;
+    const hasRange = !!(start || end);
 
-    let expenditureBySubCategory;
-    if (hasRange) {
-      const atFilter = {};
-      if (startDate) atFilter.$gte = new Date(startDate);
-      if (endDate)   atFilter.$lte = new Date(endDate);
+    // Populate each entry's originating order so we can surface the request
+    // remarks as the "reason" for the maintenance expense.
+    const records = await AssetExpenditure.find()
+      .sort({ subCategory: 1 })
+      .populate('entries.order', 'remarks Title orderNumber')
+      .lean();
 
-      const agg = await AssetExpenditure.aggregate([
-        { $unwind: '$entries' },
-        { $match: { 'entries.at': atFilter } },
-        { $group: {
-            _id: { category: '$category', subCategory: '$subCategory' },
-            totalExpenditure: { $sum: '$entries.amount' },
-            orderCount: { $sum: 1 },
-            lastExpenseAt: { $max: '$entries.at' },
-        }},
-        { $sort: { '_id.subCategory': 1 } },
-      ]);
-      expenditureBySubCategory = agg.map(r => ({
-        category: r._id.category,
-        subCategory: r._id.subCategory,
-        totalExpenditure: r.totalExpenditure,
-        orderCount: r.orderCount,
-        lastExpenseAt: r.lastExpenseAt,
+    const expenditureBySubCategory = records.map((r) => {
+      let entries = (r.entries || []).map((e) => ({
+        orderNumber: e.order?.orderNumber || null,
+        title:       e.order?.Title || null,   // shown as the reason for the expense
+        remark:      e.order?.remarks || '',    // the requester's remarks
+        amount:      e.amount || 0,
+        at:          e.at,
       }));
-    } else {
-      const records = await AssetExpenditure.find().sort({ subCategory: 1 }).lean();
-      expenditureBySubCategory = records.map(r => ({
-        category: r.category,
-        subCategory: r.subCategory,
-        totalExpenditure: r.totalExpenditure,
-        orderCount: r.orderCount,
-        lastExpenseAt: r.updatedAt,
-      }));
-    }
+
+      if (hasRange) {
+        entries = entries.filter((e) => {
+          const t = new Date(e.at).getTime();
+          if (start && t < start.getTime()) return false;
+          if (end && t > end.getTime()) return false;
+          return true;
+        });
+      }
+      entries.sort((a, b) => new Date(b.at) - new Date(a.at));
+
+      return {
+        category:         r.category,
+        subCategory:      r.subCategory,
+        totalExpenditure: hasRange ? entries.reduce((s, e) => s + e.amount, 0) : r.totalExpenditure,
+        orderCount:       hasRange ? entries.length : r.orderCount,
+        lastExpenseAt:    entries.length ? entries[0].at : r.updatedAt,
+        entries,
+      };
+    }).filter((r) => !(hasRange && r.entries.length === 0));
 
     const totalExpenditure = expenditureBySubCategory.reduce((s, r) => s + (r.totalExpenditure || 0), 0);
     res.json({ success: true, data: { expenditureBySubCategory, totalExpenditure } });

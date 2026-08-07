@@ -359,7 +359,9 @@ const UnresolvedOrders = async (req, res) => {
     const { page, limit, skip } = getPagination(req);
     const { date } = req.query;
 
-    const query = {};
+    // Only fetch orders where this user is actually a pending reviewer — pushes
+    // the bulk of the filtering into the DB instead of scanning every order.
+    const query = { "PendingApprovals.Reviewer": userId };
 
     // ✅ Date filter (cleaned)
     const now = Date.now();
@@ -387,8 +389,8 @@ const UnresolvedOrders = async (req, res) => {
       };
     }
 
-    // ❌ Block staff early
-    if (role === "Staff") {
+    // ❌ Block staff early (role enum stores lowercase "staff")
+    if (role?.toLowerCase() === "staff") {
       return res.status(403).json({ message: "Not authorized" });
     }
 

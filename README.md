@@ -97,6 +97,7 @@ Docs are generated from JSDoc blocks in routes/controllers/models using `swagger
 - **Leave management**: `routes/v2/leave.routes.js`, `controllers/v2.controllers/leave.controllers.js`, `services/leave.service.js`, `repositories/leave.repository.js`, `models/LeaveRequest.js`, `models/LeaveBalance.js`, `services/validation/LeaveValidator.js`, `constants/leave.constants.js`.
 - **File storage (GCS)**: `googlecloudstorage.service.js` — upload (disk or buffer), download, and delete objects from the `halden-backend-storage` GCS bucket. `googledriveservice.js` is retained for legacy record fallback only.
 - **File upload routes**: `routes/v1/fileupload.js` — upload writes to GCS; download checks `gcsObjectName` first, falls back to `driveFileId` for pre-migration records.
+- **Skips tracking**: `routes/v1/skips_route.js`, `models/skips_tracking.js` — tracks waste skip mobilisation and demobilisation for the waste management site. Supports filtering by waste stream, date range, and source well; exports to Excel, CSV, or PDF. Analytics via `controllers/v1.controllers/Analytics.js`.
 
 ## Project Structure (abridged)
 ```
@@ -213,6 +214,59 @@ Defaults can be overridden per-user via the update-entitlement endpoint.
 {
   "leaveType": "Annual",
   "entitlement": 25
+}
+```
+
+### Skips Tracking
+
+Tracks physical waste skips (containers) mobilised and demobilised at the Waste Management site — including truck details, waste stream classification, quantities, and manifest numbers.
+
+**Waste streams**: `WBM_Affluent`, `OBM_Cutting`, `WBM_cutting`, `OBM_Affluent`, `Sludge`, `Others`
+
+**Schema fields**
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `skip_id` | String | ✅ | Unique identifier for the skip unit |
+| `WasteStream` | String (enum) | ✅ | Type of waste — `WBM_Affluent`, `OBM_Cutting`, `WBM_cutting`, `OBM_Affluent`, `Sludge`, `Others` |
+| `WasteSource` | String | ✅ | Origin well or source location |
+| `DeliveryWaybillNo` | Number | | Waybill number on delivery |
+| `DateMobilized` | Date | | Date the skip was mobilised to site |
+| `DateReceivedOnLocation` | Date | | Date the skip arrived on location |
+| `SkipsTruckRegNo` | String | | Registration number of the truck carrying the skip |
+| `SkipsTruckDriver` | String | | Name of the skip truck driver |
+| `Quantity.value` | Number | | Quantity of waste |
+| `Quantity.unit` | String | | Unit of quantity — `kg`, `tonne`, `ton`, `t` |
+| `DispatchManifestNo` | String | | Dispatch manifest reference number |
+| `WasteTruckRegNo` | String | | Registration number of the waste collection truck |
+| `WasteTruckDriverName` | String | | Name of the waste truck driver |
+| `DemobilizationOfFilledSkips` | Date | | Date the filled skip was demobilised |
+| `DateFilled` | Date | | Date the skip was filled |
+| `lastUpdated` | Date | | Timestamp of last update (auto-set) |
+| `createdAt` / `updatedAt` | Date | | Mongoose auto timestamps |
+
+**Endpoints** (base: `/api/skips`)
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/` | List skip records (filter by `WasteStream`, `startDate`, `endDate`, `searchTerm`; paginated) |
+| `GET` | `/stats` | Aggregate totals — item count, total tonnes, categories |
+| `GET` | `/categories` | List of valid waste stream values |
+| `GET` | `/analytics` | Skip analytics breakdown |
+| `POST` | `/create` | Create a new skip record |
+| `PUT` | `/:id` | Update a skip record |
+| `DELETE` | `/:id` | Delete a skip record |
+| `POST` | `/export` | Export filtered records to `.xlsx`, `.csv`, or `.pdf` |
+
+**Export request body**
+```json
+{
+  "startDate": "2026-01-01",
+  "endDate": "2026-07-31",
+  "stream": "OBM_Cutting",
+  "WasteSource": "WELL-12",
+  "fileName": "skips-q1",
+  "fileFormat": "xlsx"
 }
 ```
 

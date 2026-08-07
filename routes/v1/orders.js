@@ -189,6 +189,91 @@ router.get("/share/:token/pdf", async (req, res) => {
   }
 });
 
+// ── Duplicate detection (server-side, across all visible orders) ─────────────
+
+// Transitive grouping of similar orders via union-find.
+// Two orders are "similar" if they share an identical (non-empty) product
+// bundle OR their remarks are similar (Jaccard on word sets) at/above threshold.
+function detectDuplicateGroups(orders, threshold) {
+  const n = orders.length;
+  if (n < 2) return [];
+
+  // Precompute signatures once (avoids re-tokenising on every comparison)
+  const remarkTokens = orders.map((o) => {
+    const s = (o.remarks || "").toLowerCase().trim();
+    return s ? new Set(s.split(/\s+/)) : null;
+  });
+  const productSig = orders.map((o) => {
+    const prods = Array.isArray(o.products) ? o.products : [];
+    if (prods.length === 0) return null; // empty product lists never match
+    return prods.map((p) => `${(p.name || "").toLowerCase()}-${p.quantity}`).sort().join("|");
+  });
+
+  // Union-Find
+  const parent = Array.from({ length: n }, (_, i) => i);
+  const find = (x) => { while (parent[x] !== x) { parent[x] = parent[parent[x]]; x = parent[x]; } return x; };
+  const union = (a, b) => { const ra = find(a), rb = find(b); if (ra !== rb) parent[ra] = rb; };
+
+  // Fast path — identical product bundles grouped via a hash map, O(n)
+  const bySig = new Map();
+  for (let i = 0; i < n; i++) {
+    const sig = productSig[i];
+    if (!sig) continue;
+    if (bySig.has(sig)) union(i, bySig.get(sig));
+    else bySig.set(sig, i);
+  }
+
+  // Fuzzy remark similarity — O(n²) but cheap with precomputed token sets
+  const jaccard = (a, b) => {
+    if (!a || !b) return 0;
+    let inter = 0;
+    for (const w of a) if (b.has(w)) inter++;
+    const uni = a.size + b.size - inter;
+    return uni > 0 ? inter / uni : 0;
+  };
+  for (let i = 0; i < n; i++) {
+    for (let j = i + 1; j < n; j++) {
+      if (find(i) === find(j)) continue; // already in the same group
+      if (jaccard(remarkTokens[i], remarkTokens[j]) >= threshold) union(i, j);
+    }
+  }
+
+  // Collect groups of size > 1
+  const groups = new Map();
+  for (let i = 0; i < n; i++) {
+    const root = find(i);
+    if (!groups.has(root)) groups.set(root, []);
+    groups.get(root).push(orders[i]);
+  }
+  return [...groups.values()].filter((g) => g.length > 1);
+}
+
+router.get("/duplicates", auth, async (req, res) => {
+  try {
+    const threshold = Math.min(1, Math.max(0, parseFloat(req.query.threshold) || 0.7));
+    // Duplicates are re-submissions — bound the scan to a recent window
+    const days = Math.min(365, Math.max(1, parseInt(req.query.days) || 90));
+    const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+
+    // Same visibility scoping as the orders list
+    const visibility = req.user.userId === "6830789898ef43e5803ea02c"
+      ? { $or: [{ staff: req.user.userId }, { status: "Completed" }, { PendingApprovals: { $not: { $elemMatch: { Level: { $in: [1, 2] } } } } }] }
+      : { $or: [{ staff: req.user.userId }, { status: { $in: ["Completed", "Approved", "Rejected"] } }, { PendingApprovals: { $not: { $elemMatch: { Level: 1 } } } }] };
+
+    const orders = await PurchaseOrder.find({ ...visibility, createdAt: { $gte: since } })
+      .sort({ createdAt: -1 })
+      .limit(1000) // hard cap to bound the O(n²) pass
+      .populate("staff", "name email Department")
+      .lean();
+
+    const groups = detectDuplicateGroups(orders, threshold);
+    return res.status(200).json({ data: groups, count: groups.length });
+  } catch (error) {
+    console.error("Error detecting duplicates:", error);
+    return res.status(500).json({ message: "Failed to detect duplicates" });
+  }
+});
+
 router.get("/reviewed",auth,RequestController.ReviewedRequests)
 router.delete("/:id/staffresponse",auth,RequestController.DeleteStaffResponse)
 router.get("/staffresponses",auth,RequestController.GetStaffResponses)
