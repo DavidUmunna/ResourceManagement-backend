@@ -16,7 +16,7 @@ const fcmError = (code) => Object.assign(new Error(code), { errorInfo: { code } 
 describe('sendPushNotification', () => {
   beforeEach(() => jest.clearAllMocks());
 
-  it('builds a message with token, notification and data, and returns the send result', async () => {
+  it('builds a data-only message with title/body inside data, and returns the send result', async () => {
     mockSend.mockResolvedValue('projects/haldenerp/messages/abc123');
 
     const res = await sendPushNotification('device-token-1', 'New request submitted', 'PO created by John', {
@@ -27,18 +27,27 @@ describe('sendPushNotification', () => {
 
     expect(mockSend).toHaveBeenCalledWith({
       token: 'device-token-1',
-      notification: { title: 'New request submitted', body: 'PO created by John' },
-      data: { type: 'new_request', orderId: 'order-001', department: 'waste_management_dep' },
+      data: {
+        type: 'new_request',
+        orderId: 'order-001',
+        department: 'waste_management_dep',
+        title: 'New request submitted',
+        body: 'PO created by John',
+      },
     });
+    // no top-level notification payload (data-only)
+    expect(mockSend.mock.calls[0][0]).not.toHaveProperty('notification');
     expect(res).toBe('projects/haldenerp/messages/abc123');
   });
 
-  it('defaults data to an empty object when none is given', async () => {
+  it('always carries title and body in the data payload', async () => {
     mockSend.mockResolvedValue('ok');
 
     await sendPushNotification('device-token-1', 'Title', 'Body');
 
-    expect(mockSend).toHaveBeenCalledWith(expect.objectContaining({ data: {} }));
+    expect(mockSend).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ title: 'Title', body: 'Body' }) })
+    );
   });
 
   it('sends all data values as strings (FCM requirement)', async () => {

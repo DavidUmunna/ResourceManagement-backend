@@ -14,12 +14,14 @@ const DEAD_TOKEN_CODES = new Set([
   'messaging/invalid-argument',
 ]);
 
-// Function to send push notification
+// Function to send push notification.
+// Data-only message (title/body live in `data`) so the service worker fully
+// controls display via showNotification — the `notification` payload is
+// unreliable on web (the browser auto-handles it and the SW handler is skipped).
 async function sendPushNotification(token, title, body, data = {}) {
   const message = {
     token,
-    notification: { title, body },
-    data,
+    data: { ...data, title: String(title ?? ''), body: String(body ?? '') },
   };
 
   try {
