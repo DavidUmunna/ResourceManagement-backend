@@ -4,6 +4,7 @@ RESTful backend for procurement operations, file tracking, compliance logging, t
 
 ## Table of Contents
 - [Features](#features)
+- [🆕 RFID Skip Tracking](#-rfid-skip-tracking-new)
 - [Requirements](#requirements)
 - [Installation](#installation)
 - [Usage](#usage)
@@ -32,6 +33,107 @@ RESTful backend for procurement operations, file tracking, compliance logging, t
 - **Payment recording** on purchase orders — accountant records reference, channel, and amount; generates a Word document receipt on demand.
 - **Cascade delete** — deleting an order also removes its GCS (or Drive) attachment and file document.
 - **CI via GitHub Actions** — tests run on Node 18.x and 20.x on every push/PR to `main`.
+- 🆕 **RFID Skip Tracking** — end-to-end relational skip lifecycle (trucks, drivers, RFID scans, waybills, manifests), an external **Site Approver Portal** with SMS OTP, **Projects** with **per-day USD pricing & revenue**, and a **per-skip rate override**. See the highlighted section below.
+
+---
+
+## 🆕 RFID Skip Tracking (NEW)
+
+> **New end-to-end feature.** Turns the flat skip records into a full relational lifecycle: physical skips carry **RFID tags**, move on **trucks** driven by **drivers**, are dispatched under **waybills** and disposed under **manifests** signed by external **site approvers**, are grouped by **project/IOC**, and **earn revenue** at a daily USD rate. Every action is **compliance-logged**.
+>
+> **All new work is additive and backward-compatible** — the legacy `/api/skiptrack` CRUD and existing FileTrack compliance logging are untouched.
+
+### New entities & endpoints
+
+| Entity | Endpoints (base) | Notes |
+|---|---|---|
+| **Truck** | `/api/trucks` | `POST /`, `GET /`, `GET /:id`, `PUT /:id`, `PUT /:id/assign-driver` (FR-1: reassignment always allowed) |
+| **Driver** | `/api/drivers` | `POST /`, `GET /`, `GET /:id`, `PUT /:id` |
+| **Skip (relational ops)** | `/api/skips` | `GET /` (filters: search, wasteStream, ownership, active, **stage**, **project**, pagination), `GET /:id` (populated), `POST /:id/register-tag` (FR-7/8), `PUT /:id/assign-delivery-truck` & `assign-collection-truck` (FR-2/5), `POST /scan` (RFID, FR-9/11/6), `POST /manual-scan` (supervisor+, FR-10), `PUT /:id/return` (FR-16), `PUT /:id/rental`, `PUT /:id/project`, `PUT /:id/rate` (**per-skip rate override**) |
+| **Waybill** | `/api/waybills` | Dispatch document. `POST /`, `GET /`, `GET /:id`, `PUT /:id/approve` & `PUT /:id/reject` (internal **2FA/OTP**, FR-17d). A skip can't **mobilize** unless it's on an **approved** waybill (FR-17e). |
+| **Manifest** | `/api/manifests` | Disposal document for **demobilized-only** skips. Staff: `POST /`, `GET /`, `GET /:id`, `GET /:id/pdf` (pdfkit), `PUT /:id/attach-skips`. Approver-scoped: `GET /mine`, `GET /mine/:id`, `GET /mine/:id/pdf`. Sign/reject: `PUT /:id/sign` & `PUT /:id/reject` (**Site-Approver session + fresh point-of-action OTP**, FR-19). |
+| **SiteApprover** | `/api/site-approvers` | External, non-staff approvers on their **own auth** (JWT, not the Redis session). `POST /login` → SMS OTP → `POST /verify-otp` → JWT; `POST /request-otp`, `POST /change-password`. **Self-service recovery:** `POST /forgot-password` (phone → SMS code) + `POST /reset-password` (phone + code + new password) — no admin bottleneck. Admin (staff): `POST /` create, `GET /` list, `PUT /:id` (deactivate/reactivate, admin password reset). |
+| **Project** | `/api/projects` | Operational job/IOC a skip is deployed to. `POST /`, `GET /`, `GET /:id`, `PUT /:id`, and **`GET /revenue?from=&to=`** (skip revenue rolled up per project). Carries `dailyRateUsd` (USD/skip/day). |
+
+### Pricing & revenue
+- Each **Project** has a **daily USD rate per skip** (`dailyRateUsd`). A skip may set a **per-skip override** (`PUT /api/skips/:id/rate`) that wins over the project rate.
+- **Revenue = billable days × effective rate**, where **billable days = mobilized → demobilized** (or → now if still on site). Partial days round **up** (`Math.ceil`) — standard rental convention; change in `services/revenue.service.js` if you prefer round/floor.
+- `GET /api/projects/revenue` rolls this up per project (+ totals, + count of un-rated deployed skips).
+- The legacy **Skips Management** page shows **Rate / Revenue** columns and inline per-skip rate editing, and the **Excel/CSV/PDF export** (`POST /api/skiptrack/export`) includes **Project, Rate $/day, Billable Days, Revenue (USD)**.
+
+### Auth, OTP & SMS
+- **Internal 2FA** (waybill approve/reject) reuses the existing OTP model + `middlewares/TwoFactorVerify` (`POST /api/otp/:id/send-otp`).
+- **Site Approver OTP** is delivered over **SMS via a provider-agnostic seam** (`services/smsService.js`). The concrete adapter is **Termii**; with no `TERMII_API_KEY` it falls back to a console adapter (logs the code) so flows work before the provider is wired. Manifest sign/reject additionally require a **fresh OTP at the point of action** (`middlewares/check-approver-otp.js`, FR-19).
+
+### Compliance logging
+- `models/ComplianceLog.js` is now **polymorphic** (`refPath`) over both the entity (`entityType`/`entityModel`: FileTrack, Skip, Truck, Driver, Waybill, Manifest, SiteApprover, **Project**) and the **actor** (`performedByModel`: `user` **or** `siteapprover`).
+- `action` enum extended: `CREATE, UPDATE, DELETE, SCAN, MANUAL_SCAN, APPROVE, REJECT, SIGN, RETURN, LOGIN`. Logging is best-effort (never breaks the primary action) via `services/ComplianceLog.service.js`.
+
+### Notifications & crons
+- `notifyIssue()` (`services/NotificationService.js`) emails issue-notify roles on manual scans, tag conflicts, waybill/manifest rejections, and rental expiry.
+- Daily rented-skip **expiry nag** cron (`Global_Functions/checkSkipRentalExpiry.js`).
+
+### Dashboard insights (replaces the moving-average chart)
+
+The Skips Management page previously showed a **moving-average** line of daily waste
+tonnes. That was removed: a moving average smooths *noisy, high-frequency* signals,
+but skip movements are **sparse, discrete events** — averaging them flattens exactly
+the spikes (the busy days, the stuck skips) an operations manager needs to see, and
+it was a single undifferentiated line disconnected from the decisions the team
+actually makes (collection, utilization, revenue).
+
+It is replaced by **`GET /api/skiptrack/insights?from=&to=`** ([`services/skipInsights.service.js`](services/skipInsights.service.js)),
+which powers the **Skip Insights** panel. Instead of smoothing, it surfaces
+decision-focused metrics:
+
+| Metric | What it is | Question it answers |
+|---|---|---|
+| **On site now** | Skips mobilized, not yet demobilized, active | How many skips are currently deployed? |
+| **Overdue** | On-site longer than `SKIP_OVERDUE_DAYS` (default 14) | Which collections are running late? |
+| **Utilization %** | On-site ÷ active skips | How much of the fleet is working vs idle? |
+| **Avg turnaround** | Mean days mobilize → demobilize (in range) | Are skips cycling faster or getting stuck? |
+| **Rentals expiring** | Rented skips within the nag lead window | What needs return/renewal soon? |
+| **Period revenue** | From the pricing engine (`computeRevenue`) | What did the skips earn this period? |
+| **Throughput** (weekly) | Mobilized vs demobilized per week | Is a backlog building (out > back)? |
+| **Turnaround trend** (weekly) | Avg turnaround per week | Is efficiency improving over time? |
+| **By waste stream** | Tonnes per stream (kg normalized) | What's the waste mix? |
+| **By project / IOC** | Skips + revenue per project | Which client drives volume and money? |
+
+Frontend: [`src/pages/skips/SkipInsights.jsx`](../ResouceManagement-Frontend/src/pages/skips/SkipInsights.jsx) —
+a KPI-card strip + throughput bar chart, turnaround line, waste-by-stream doughnut,
+and a revenue-by-project table, with a date-range picker. It lives on its **own
+page** (`/admin/skip-insights`, sidebar → Operations → **Skip Insights**), keeping
+the **Skips Management** page focused on the register / edit / export. The legacy
+`movingAverage.jsx` component was deleted.
+
+> **Note:** the weekly aggregations run in JS over skips whose mobilize/demobilize
+> dates fall in the range — fine at small/medium volumes; move to a Mongo aggregation
+> pipeline if the skip collection grows very large.
+
+**Driver model cleanup:** driver records now use **name · rfidTag · licenseNo**;
+the speculative `badgeId` field was removed.
+
+### Site approver lifecycle
+- **Provisioning:** an admin/global_admin adds an approver from the **Site Approvers** tab in the ERP module (name, phone, site, temp password). The temp password is shown once to hand over; the approver must change it on first login.
+- **Recovery (no bottleneck):** if an approver forgets their password they reset it themselves from the portal — **Forgot password → phone → SMS code → new password**. Admins can also deactivate/reactivate or issue a fresh temp password as a fallback.
+
+### Frontends
+- **ERP module** (staff): `/admin/skip-tracking` in the React app — tabs for **Skips, Trucks & Drivers, Waybills, Manifests, Projects, Revenue, Site Approvers, Compliance**. Role-gated via the existing `RoleGuard`; "dispatcher" maps to the Waste-Management roles. **Skip Insights** is its own page (sidebar → Operations); **Skips Management** stays the register/export view (skip creation now lives in the RFID module).
+- **Site Approver Portal** (external): a **separate standalone Vite + React app** in its **own repo** (`/Users/admin/site-approver-portal`, sibling of the ERP frontend & backend) — mobile-first login → OTP → manifest list → detail → approve/reject with OTP re-verify. Its own README, `.env.example`, and independent build/deploy. Its production origin must be added to this backend's CORS allow-list.
+
+### Migration
+- `maintenanceScripts/migrateSkipsRelational.js` — idempotent, **dry-run by default** (`--commit` to write): backfills skip lifecycle fields, seeds Driver/Truck from legacy free-text names, and backfills ComplianceLog discriminators.
+
+### End-to-end smoke tests (real Mongo + Redis, throwaway DBs)
+Beyond the mocked Jest suites, these exercise the running stack (they caught real bugs the mocks missed — e.g. the compliance `action` enum and a rental date-off-by-one):
+```bash
+node scripts/e2e-smoke.js      # full lifecycle: truck→driver→skip→waybill→scan→manifest→sign→pdf→compliance
+node scripts/e2e-rental.js     # rented-skip capture (vendor/window) + expiry-nag query
+node scripts/e2e-project.js    # project assign / populate / filter
+node scripts/e2e-revenue.js    # revenue math, per-skip override, Excel export
+node scripts/e2e-insights.js   # dashboard KPIs, throughput, turnaround, by-stream/project
+node scripts/e2e-approver.js   # approver provisioning + self-service password recovery
+```
 
 ## Requirements
 - Node.js 18.x or 20.x (CI-tested); 22.x in production
@@ -290,6 +392,10 @@ Tracks physical waste skips (containers) mobilised and demobilised at the Waste 
 | `GEMINI_API_KEY` | Yes | Google Gemini API key (AI features) |
 | `EMAIL_FROM` | Yes | Sender address for Nodemailer |
 | `EMAIL_PASSWORD` | Yes | SMTP password / app password |
+| `TERMII_API_KEY` | No | 🆕 Termii API key for Site-Approver SMS OTP. If unset, OTP falls back to a console adapter (dev). |
+| `TERMII_SENDER_ID` | No | 🆕 Termii approved sender ID (default `Halden`). |
+| `TERMII_BASE_URL` | No | 🆕 Termii base URL override (default `https://api.ng.termii.com`). |
+| `SKIP_RENTAL_NAG_LEAD_DAYS` | No | 🆕 Days before a rented skip's expiry to start the daily nag (default `3`). |
 | `APP_PASS` | No | App-specific email password (alternative) |
 | `FRONTEND_URL` | Yes | Frontend origin for CORS |
 | `FRONTEND_BASED_URL` | No | Alternate frontend base URL |

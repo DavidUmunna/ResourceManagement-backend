@@ -8,6 +8,7 @@ const cors = require("cors");
 const cookieParser = require("cookie-parser");
 const helmet=require("helmet")
 require("./Global_Functions/checkExpiry");
+require("./Global_Functions/checkSkipRentalExpiry");
 // Custom modules
 const connectDB = require("./db");
 const cspmiddleware=require("./middlewares/csp")
@@ -18,6 +19,13 @@ const redis = require("redis");
 const UserSchema=require('./models/users_')
 const uploadRoutes = require("./routes/v1/fileupload");
 const skiptrackRoutes=require("./routes/v1/skips_route")
+const truckRoutes=require("./routes/v1/truck.routes")
+const driverRoutes=require("./routes/v1/driver.routes")
+const skipRelationalRoutes=require("./routes/v1/skips.routes")
+const waybillRoutes=require("./routes/v1/waybill.routes")
+const siteApproverRoutes=require("./routes/v1/siteApprover.routes")
+const manifestRoutes=require("./routes/v1/manifest.routes")
+const projectRoutes=require("./routes/v1/project.routes")
 const departmentRoutes = require("./routes/v1/Department_route");
 const companyDataRoutes = require("./routes/v1/CompanyDataRoute");
 const supplierRoutes = require("./routes/v1/suppliers");
@@ -63,6 +71,7 @@ const app = express();
 const corsOptions = {
   origin: [
     "http://localhost:3000",
+    "http://localhost:5175",
     "http://127.0.0.1:5000",
     "http://localhost:3001",
     "http://127.0.0.1:3000",
@@ -71,6 +80,10 @@ const corsOptions = {
     "http://192.168.137.108:3000",
     "http://192.168.137.108:5000",
     "https://erp.haldengroup.ng",
+    // Site Approver Portal (separate app). Add the production portal origin here.
+    "http://localhost:5173",
+    "http://localhost:4173",
+    "https://approver.haldengroup.ng",
   ],
   credentials: true,
 };
@@ -113,6 +126,13 @@ app.use("/api/companydata", companyDataRoutes);
 app.use("/api/inventory", InventoryRoute);
 app.use("/api/inventory/activities", activityroute);
 app.use("/api/skiptrack", skiptrackRoutes);
+app.use("/api/trucks", truckRoutes);
+app.use("/api/drivers", driverRoutes);
+app.use("/api/skips", skipRelationalRoutes);
+app.use("/api/waybills", waybillRoutes);
+app.use("/api/site-approvers", siteApproverRoutes);
+app.use("/api/manifests", manifestRoutes);
+app.use("/api/projects", projectRoutes);
 app.use("/api/inventorylogs",inventorylogs)
 app.use("/api/roles&departments",roles_departments)
 app.use("/api/monitoring",monitoring)
@@ -168,6 +188,14 @@ app.use((req, res, next) => {
     "/api/disbursement-schedules/:id/submit",
     "/api/scheduling/disbursement-schedules/:id",
     "/api/otp/",
+    "/api/site-approvers/login",
+    "/api/site-approvers/verify-otp",
+    "/api/site-approvers/forgot-password",
+    "/api/site-approvers/reset-password",
+    "/api/site-approvers/request-otp",
+    "/api/site-approvers/change-password",
+    "/api/manifests/:id/sign",
+    "/api/manifests/:id/reject",
     "/api/v2/filetrack",
     "/api/save-token",
     "/api/savetoken",

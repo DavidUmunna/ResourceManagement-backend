@@ -34,6 +34,15 @@ const { CreateSignature } = require("../../controllers/v1.controllers/Signature_
 const { sendPushNotification } = require("../../Global_Functions/firebasePushNotification");
 const { deleteFileFromCloud } = require("../../googlecloudstorage.service");
 const { deleteFileFromDrive } = require("../../googledriveservice");
+const followUpController = require("../../controllers/v1.controllers/requestFollowUp.controllers");
+
+// ── Request follow-ups (nudge a pending request without duplicating it) ──────
+// Static /followups/* before the generic /:id routes.
+router.get("/followups/sent", auth, followUpController.sent);          // requester dashboard
+router.get("/followups/received", auth, followUpController.received);  // approver dashboard
+router.get("/followups/escalated", auth, followUpController.escalatedReceived); // escalated POs I can act on
+router.post("/:id/followup", auth, followUpController.create);
+router.get("/:id/followups", auth, followUpController.listForOrder);
 
 // ── PO share link (public, tokenized PDF) ────────────────────────────────────
 

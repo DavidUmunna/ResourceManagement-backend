@@ -29,6 +29,45 @@ const SkipsTrackingSchema=mongoose.Schema({
     default: Date.now
     },
 
+    // ── RFID Skip Tracking (relational additions) ──────────────────────────────
+    // RFID tag bound to this physical skip. Sparse+unique so many skips can be
+    // tag-less, but no two ACTIVE skips share a tag (uniqueness enforced here for
+    // the whole collection; the service additionally guards active-vs-active — FR-8).
+    rfidTag: { type: String, trim: true, index: true },
+
+    // Per-leg truck assignment (FR-2 / FR-5). Delivery = mobilization (empty skip
+    // out to site), Collection = demobilization (filled skip back).
+    assignedDeliveryTruckId:    { type: mongoose.Schema.Types.ObjectId, ref: "truck" },
+    assignedDeliveryAssignedAt: { type: Date },
+    assignedCollectionTruckId:    { type: mongoose.Schema.Types.ObjectId, ref: "truck" },
+    assignedCollectionAssignedAt: { type: Date },
+
+    // How each leg's scan was recorded — rfid (gate) vs manual (supervisor override).
+    mobilizeScanMethod:   { type: String, enum: ["rfid", "manual"] },
+    mobilizeManualReason: { type: String },
+    demobilizeScanMethod:   { type: String, enum: ["rfid", "manual"] },
+    demobilizeManualReason: { type: String },
+
+    // Ownership / rental (FR-12, FR-16, Phase 6).
+    ownership:          { type: String, enum: ["owned", "rented"], default: "owned" },
+    rentedFromCompany:  { type: String },
+    // Operational project this skip is deployed to (which project is this skip for).
+    projectId:          { type: mongoose.Schema.Types.ObjectId, ref: "project" },
+    projectRef:         { type: String }, // legacy free-text; superseded by projectId
+    // Optional per-skip daily USD rate override. When set, it takes precedence
+    // over the project's dailyRateUsd for this skip's revenue.
+    dailyRateUsdOverride: { type: Number, min: 0, default: null },
+    rentalStart:        { type: Date },
+    rentalExpectedEnd:  { type: Date },
+
+    // Lifecycle. active=false once returned/retired (FR-16).
+    active:     { type: Boolean, default: true },
+    returnedAt: { type: Date },
+
+    // Relational links (models registered in later phases; refs resolve lazily).
+    manifestId: { type: mongoose.Schema.Types.ObjectId, ref: "manifest" },
+    waybillId:  { type: mongoose.Schema.Types.ObjectId, ref: "waybill" },
+
 },{timestamps:true})
 SkipsTrackingSchema.index({ createdAt: 1 });
 

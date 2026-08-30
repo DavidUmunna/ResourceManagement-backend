@@ -5,6 +5,7 @@ const auth=require("../../middlewares/check-auth")
 const { getPagination ,getPagingData} = require("../../Global_Functions/pagination")
 const SkipTracking = require("../../models/skips_tracking")
 const analytics=require("../../controllers/v1.controllers/Analytics")
+const skipInsights=require("../../controllers/v1.controllers/skipInsights.controller")
 const router=express.Router()
 const ExcelJS = require('exceljs');
 const PDFDocument = require('pdfkit'); // for PDF export
@@ -43,6 +44,7 @@ router.get("/", auth, async (req, res) => {
         const [total, items] = await Promise.all([
             skipsTracking.countDocuments(filter),
             skipsTracking.find(filter)
+                .populate("projectId", "name code dailyRateUsd")
                 .sort({ lastUpdated: -1 })
                 .lean()
                 .skip(skip)
@@ -92,7 +94,20 @@ router.post("/export", auth, async (req, res) => {
       delete query.WasteSource
     }
    
-    const skipData = await skipsTracking.find(query).lean();
+    const skipData = await skipsTracking.find(query).populate("projectId", "name code dailyRateUsd").lean();
+
+    // Pricing helpers (mirror the revenue rule): effective rate = per-skip override
+    // else project rate; billable days = mobilized → demobilized (or → now).
+    const EXPORT_DAY = 24 * 60 * 60 * 1000;
+    const rateOf = (e) => (e.dailyRateUsdOverride != null ? Number(e.dailyRateUsdOverride) : Number(e.projectId?.dailyRateUsd || 0));
+    const daysOf = (e) => {
+      if (!e.DateMobilized) return 0;
+      const mob = new Date(e.DateMobilized).getTime();
+      const demob = e.DemobilizationOfFilledSkips ? new Date(e.DemobilizationOfFilledSkips).getTime() : Date.now();
+      return demob > mob ? Math.ceil((demob - mob) / EXPORT_DAY) : 0;
+    };
+    const revOf = (e) => daysOf(e) * rateOf(e);
+    const projOf = (e) => (e.projectId ? (e.projectId.code || e.projectId.name || "") : "");
 
     const sanitizedFileName = fileName.replace(/[^a-zA-Z0-9-_]/g, '_');
     const timestamp = Date.now();
@@ -124,7 +139,11 @@ router.post("/export", auth, async (req, res) => {
         { header: 'Date Filled', key: 'DateFilled', width: 20 },
         { header: 'Last Updated', key: 'lastUpdated', width: 25 },
         { header: 'Created At', key: 'createdAt', width: 25 },
-        { header: 'Updated At', key: 'updatedAt', width: 25 }
+        { header: 'Updated At', key: 'updatedAt', width: 25 },
+        { header: 'Project', key: 'Project', width: 20 },
+        { header: 'Rate $/day', key: 'RateUsd', width: 12 },
+        { header: 'Billable Days', key: 'BillableDays', width: 14 },
+        { header: 'Revenue (USD)', key: 'RevenueUsd', width: 15 }
       ];
 
       skipData.forEach(entry => {
@@ -146,7 +165,11 @@ router.post("/export", auth, async (req, res) => {
           DateFilled: entry.DateFilled?.toISOString().split("T")[0],
           lastUpdated: entry.lastUpdated?.toISOString().split("T")[0],
           createdAt: entry.createdAt?.toISOString().split("T")[0],
-          updatedAt: entry.updatedAt?.toISOString().split("T")[0]
+          updatedAt: entry.updatedAt?.toISOString().split("T")[0],
+          Project: projOf(entry),
+          RateUsd: rateOf(entry),
+          BillableDays: daysOf(entry),
+          RevenueUsd: revOf(entry)
         });
       });
 
@@ -161,7 +184,8 @@ router.post("/export", auth, async (req, res) => {
         'Skip ID', 'Delivery Waybill No','Date Mobilized','Date Recieved','Skips Truck Reg No','Skips Truck Driver', 'Quantity Value', 'Quantity Unit',
         'Waste Stream', 'Source Well', 'Dispatch Manifest No', 'Waste Truck Reg No',
         'Waste Driver Name', 'Demobilization Of Filled Skips',
-        'Date Filled', 'Last Updated', 'Created At', 'Updated At'
+        'Date Filled', 'Last Updated', 'Created At', 'Updated At',
+        'Project', 'Rate $/day', 'Billable Days', 'Revenue (USD)'
       ];
 
       const rows = skipData.map(entry => ([
@@ -182,7 +206,11 @@ router.post("/export", auth, async (req, res) => {
          entry.DateFilled?.toISOString().split("T")[0],
          entry.lastUpdated?.toISOString().split("T")[0],
          entry.createdAt?.toISOString().split("T")[0],
-         entry.updatedAt?.toISOString().split("T")[0]
+         entry.updatedAt?.toISOString().split("T")[0],
+         projOf(entry),
+         rateOf(entry),
+         daysOf(entry),
+         revOf(entry)
       ]));
 
       const csvContent = [
@@ -217,6 +245,8 @@ router.post("/export", auth, async (req, res) => {
           .text(`Waste Truck Driver Name: ${entry.WasteTruckDriverName}`)
           .text(`Demobilization Of Filled Skips: ${entry.DemobilizationOfFilledSkips}`)
           .text(`Date Filled: ${entry.DateFilled}`)
+          .text(`Project: ${projOf(entry) || '—'}`)
+          .text(`Rate $/day: ${rateOf(entry)}   Billable Days: ${daysOf(entry)}   Revenue (USD): ${revOf(entry)}`)
           .text(`Last Updated: ${entry.lastUpdated}`)
           .text(`Created At: ${entry.createdAt}`)
           .text(`Updated At: ${entry.updatedAt}`)
@@ -270,7 +300,14 @@ router.post("/create",auth,async(req,res)=>{
             WasteTruckRegNo,
             WasteTruckDriverName,
             DemobilizationOfFilledSkips,
-            DateFilled}=req.body
+            DateFilled,
+            // RFID module: optional rental fields (rented-skip onboarding)
+            ownership,
+            rentedFromCompany,
+            projectRef,
+            projectId,
+            rentalStart,
+            rentalExpectedEnd}=req.body
             if (!skip_id){
                 return res.status(403).json({message:"missing values in query"})
             }
@@ -290,12 +327,21 @@ router.post("/create",auth,async(req,res)=>{
                 WasteTruckRegNo,
                 WasteTruckDriverName,
                 DemobilizationOfFilledSkips:NormalizedDemob,
-                DateFilled:NormailizedFilled
+                DateFilled:NormailizedFilled,
+                ownership: ownership === "rented" ? "rented" : "owned",
+                rentedFromCompany,
+                projectRef,
+                projectId: projectId || undefined,
+                // Store rental dates as-is (consistent with the setRental edit path);
+                // NOT via normalizeDate, which intentionally shifts +1 day for the
+                // legacy date-only skip-event fields and would corrupt the expiry.
+                rentalStart: rentalStart ? new Date(rentalStart) : undefined,
+                rentalExpectedEnd: rentalExpectedEnd ? new Date(rentalExpectedEnd) : undefined
             })
             //console.log("new skip item",new_skipItem)
-            
+
             await new_skipItem.save()
-            res.status(200).json({success:true,message:"new skip item created successfully "})
+            res.status(200).json({success:true,message:"new skip item created successfully ",data:{_id:new_skipItem._id}})
         }catch(error){
             console.error("error originated from skips route POST:",error)
             res.status(500).json({message:"server error, skip item creation unsuccessful"})
@@ -481,6 +527,7 @@ router.get('/stats', auth, async (req, res) => {
   }
 });
   router.get("/analytics",auth,analytics.getSkipAnalytics)
+  router.get("/insights",auth,skipInsights.getSkipInsights)
 
 
   module.exports=router;

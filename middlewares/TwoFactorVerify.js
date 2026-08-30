@@ -1,7 +1,10 @@
 // middleware/twoFactorVerify.js
 const OTPModel = require("../models/OTP"); // store OTP codes with expiry
+const { otpBypassEnabled, warnBypass } = require("../Global_Functions/otpBypass");
 
 async function twoFactorVerify(req, res, next) {
+  if (otpBypassEnabled()) { warnBypass("staff 2FA (waybill approve/reject)"); return next(); }
+
   const { otp } = req.body;
   if(req.user.role==="human_resources"){
     return next()
