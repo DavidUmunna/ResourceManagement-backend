@@ -20,7 +20,9 @@ const Manifest = require("../models/Manifest");
 const SiteApprover = require("../models/SiteApprover");
 
 const MONGO_URI = process.env.MONGO_URI || "mongodb://localhost:27017/Halden_data";
-const APPROVER_PHONE = "+2348000000000";
+const APPROVER_PHONE = process.env.SEED_APPROVER_PHONE || "+2348000000000";
+const APPROVER_PASSWORD = process.env.SEED_APPROVER_PASSWORD;
+const APPROVER_NAME = process.env.SEED_APPROVER_NAME || "Test Approver";
 const DAY = 24 * 60 * 60 * 1000;
 const ago = (d) => new Date(Date.now() - d * DAY);
 
@@ -38,11 +40,15 @@ async function main() {
   // ── approver (find the seeded one, or create it) ────────────────────────────
   let approver = await SiteApprover.findOne({ phone: APPROVER_PHONE });
   if (!approver) {
+    if (!APPROVER_PASSWORD) {
+      console.error("Missing SEED_APPROVER_PASSWORD in .env — needed to create the demo approver. Aborting.");
+      process.exit(1);
+    }
     approver = await SiteApprover.create({
-      name: "Test Approver", phone: APPROVER_PHONE, site: "Demo Site",
-      passwordHash: await bcrypt.hash("Approver123!", 10), mustChangePassword: false, active: true,
+      name: APPROVER_NAME, phone: APPROVER_PHONE, site: "Demo Site",
+      passwordHash: await bcrypt.hash(APPROVER_PASSWORD, 10), mustChangePassword: false, active: true,
     });
-    console.log("Created approver (Approver123!)");
+    console.log(`Created approver (${APPROVER_NAME}) — password from SEED_APPROVER_PASSWORD`);
   }
 
   const staff = { id: new mongoose.Types.ObjectId(), name: "Demo Dispatcher", role: "global_admin" };

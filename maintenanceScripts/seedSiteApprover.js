@@ -12,11 +12,19 @@ const SiteApprover = require("../models/SiteApprover");
 
 const MONGO_URI = process.env.MONGO_URI || "mongodb://localhost:27017/Halden_data";
 
-const phone = (process.argv[2] || "+2348000000000").trim();
-const password = process.argv[3] || "Approver123!";
-const name = process.argv[4] || "Test Approver";
+// Credentials come from CLI args first, then the (gitignored) .env — never hardcoded.
+const phone = (process.argv[2] || process.env.SEED_APPROVER_PHONE || "").trim();
+const password = process.argv[3] || process.env.SEED_APPROVER_PASSWORD || "";
+const name = process.argv[4] || process.env.SEED_APPROVER_NAME || "Test Approver";
 
 async function main() {
+  if (!phone || !password) {
+    console.error(
+      "Missing seed credentials. Set SEED_APPROVER_PHONE and SEED_APPROVER_PASSWORD in .env,\n" +
+      "or pass them as args:  node maintenanceScripts/seedSiteApprover.js \"+234...\" \"YourPass\" \"Name\""
+    );
+    process.exit(1);
+  }
   await mongoose.connect(MONGO_URI);
   console.log(`Connected to ${MONGO_URI.replace(/\/\/[^@]*@/, "//***@")}`);
 
