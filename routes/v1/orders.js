@@ -1651,15 +1651,53 @@ router.put("/:id", async (req, res) => {
 });
 
 // Delete an order
-router.delete("/:id", async (req, res) => {
+const MANAGER_ROLES = [
+  "Waste Management Manager",
+  "Contracts_manager",
+  "Financial_manager",
+  "Environmental_lab_manager",
+  "Facility Manager",
+];
+
+router.delete("/:id", auth, async (req, res) => {
   try {
-    const deletedOrder = await PurchaseOrder.findByIdAndDelete(req.params.id);
-    if (!deletedOrder) {
+    const order = await PurchaseOrder.findById(req.params.id)
+      .populate("staff", "Department");
+
+    if (!order) {
       return res.status(404).json({ message: "Order not found" });
     }
 
-    if (deletedOrder.fileRefs) {
-      const fileDoc = await file.findById(deletedOrder.fileRefs);
+    const { userId, role, Department } = req.user;
+    const isOwner   = order.staff?._id?.toString() === userId?.toString();
+    const isManager = MANAGER_ROLES.includes(role);
+    const isAdmin   = role === "global_admin";
+
+    if (!isOwner && !isManager && !isAdmin) {
+      return res.status(403).json({ message: "You are not authorised to delete this order." });
+    }
+
+    // Owner can only delete while the order is still Pending
+    if (isOwner && !isManager && !isAdmin && order.status !== "Pending") {
+      return res.status(403).json({
+        message: "You can only delete your own order while it is still Pending.",
+      });
+    }
+
+    // Managers are restricted to their own department
+    if (isManager && !isAdmin) {
+      const orderDept = order.staff?.Department || order.targetDepartment;
+      if (orderDept !== Department) {
+        return res.status(403).json({
+          message: "Managers can only delete orders from their own department.",
+        });
+      }
+    }
+
+    await order.deleteOne();
+
+    if (order.fileRefs) {
+      const fileDoc = await file.findById(order.fileRefs);
       if (fileDoc) {
         await Promise.allSettled(
           (fileDoc.files || []).map(async (f) => {
@@ -1674,19 +1712,23 @@ router.delete("/:id", async (req, res) => {
             }
           })
         );
-        await file.findByIdAndDelete(deletedOrder.fileRefs);
+        await file.findByIdAndDelete(order.fileRefs);
       }
     }
 
     res.json({ message: "Order deleted successfully" });
   } catch (error) {
+    console.error("Error deleting order:", error);
     res.status(500).json({ message: "Error deleting order", error });
   }
 });
 
-// Delete all orders
-router.delete("/", async (req, res) => {
+// Delete all orders — global_admin only
+router.delete("/", auth, async (req, res) => {
   try {
+    if (req.user.role !== "global_admin") {
+      return res.status(403).json({ message: "Only global admins can perform a bulk delete." });
+    }
     await PurchaseOrder.deleteMany({});
     res.json({ message: "All orders deleted successfully" });
   } catch (error) {
