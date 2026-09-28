@@ -230,8 +230,14 @@ app.use((req, res, next) => {
   next();
 })
 
-const redisClient = redis.createClient();
-redisClient.connect().catch(console.error); 
+const redisClient = redis.createClient({
+  socket: {
+    reconnectStrategy: (retries) => Math.min(retries * 100, 3000),
+    keepAlive: 5000,
+  },
+});
+redisClient.on("error", (err) => console.error("Redis client error:", err.message));
+redisClient.connect().catch(console.error);
 app.get("/api/csrf-token", csrfProtection, async (req, res) => {
   const sessionId = req.cookies.sessionId;
   const checkSessionId = await redisClient.get(`session:${sessionId}`);
