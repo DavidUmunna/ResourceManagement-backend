@@ -13,6 +13,7 @@ const redis = require("redis");
 const request = require("supertest");
 const app = require("../server");
 const PurchaseOrder = require("../models/PurchaseOrder");
+const User = require("../models/users_");
 
 const oid = () => new mongoose.Types.ObjectId();
 const REQ = oid(), REV = oid();
@@ -80,6 +81,18 @@ async function main() {
   ck("resolved request drops off 'received' dashboard", r.status === 200 && r.body.data?.length === 0, JSON.stringify(r.body?.data?.length));
   r = await call("get", `/api/orders/followups/escalated`, sess.rev);
   ck("resolved request drops off 'escalated' dashboard", r.status === 200 && r.body.data?.length === 0, JSON.stringify(r.body?.data?.length));
+
+  // 8. follow-up on an APPROVED request → eligible, notifies the approvers from the log
+  // raw insert — we only need name + _id for the approver-name→id resolution
+  await User.collection.insertOne({ _id: REV, name: "Reviewer" });
+  const approved = await PurchaseOrder.create({
+    Title: "Approved PO", remarks: "proceed", staff: REQ, status: "Approved",
+    PendingApprovals: [], Approvals: [{ admin: "Reviewer", status: "Approved" }],
+  });
+  r = await call("post", `/api/orders/${approved._id}/followup`, sess.req).send({ note: "approved — please proceed" });
+  ck("follow-up allowed on Approved request (201)", r.status === 201, JSON.stringify(r.body));
+  ck("Approved follow-up notifies the approver resolved from the log",
+    (r.body?.data?.notifiedUserIds || []).map(String).includes(String(REV)), JSON.stringify(r.body?.data?.notifiedUserIds));
 
   await mongoose.connection.dropDatabase(); await rc.del(`session:${sess.req}`); await rc.del(`session:${sess.rev}`); await rc.quit(); await mongoose.disconnect();
   console.log("\n=== FOLLOW-UP E2E ===\n" + out.join("\n") + `\n\n${PASS} passed, ${FAIL} failed`);

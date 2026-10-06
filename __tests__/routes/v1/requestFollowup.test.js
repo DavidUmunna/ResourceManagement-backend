@@ -62,8 +62,25 @@ describe('POST /orders/:id/followup', () => {
     expect(res.body.message).toMatch(/more information/i);
   });
 
-  it('400 when the request is terminal (Approved)', async () => {
-    mockOrder({ ...pending, status: 'Approved' });
+  it('creates a follow-up on an Approved request, notifying the approvers from the log', async () => {
+    mockOrder({
+      ...pending,
+      status: 'Approved',
+      PendingApprovals: [], // nothing left to approve
+      Approvals: [{ admin: 'Alice Approver', status: 'Approved' }, { admin: 'Bob Approver', status: 'Approved' }],
+    });
+    followUpRepo.findLatestByUserForOrder.mockResolvedValue(null);
+    // User.find(...).select(...).lean() → the two approvers resolved by name to ids.
+    require('../../../models/users_').find.mockReturnValue({ select: () => ({ lean: () => Promise.resolve([{ _id: 'appr-1' }, { _id: 'appr-2' }]) }) });
+    followUpRepo.create.mockResolvedValue({ _id: 'f2', toObject() { return { _id: 'f2', notifiedUserIds: ['appr-1', 'appr-2'] }; } });
+
+    const res = await request(app()).post('/api/orders/o1/followup').set('Cookie', cookie).send({ note: 'approved — please proceed' });
+    expect(res.status).toBe(201);
+    expect(followUpRepo.create).toHaveBeenCalledWith(expect.objectContaining({ order: 'o1', requestedBy: 'req-1', notifiedUserIds: ['appr-1', 'appr-2'] }));
+  });
+
+  it('400 when the request is terminal (Rejected)', async () => {
+    mockOrder({ ...pending, status: 'Rejected' });
     const res = await request(app()).post('/api/orders/o1/followup').set('Cookie', cookie).send({});
     expect(res.status).toBe(400);
   });

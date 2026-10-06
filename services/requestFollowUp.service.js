@@ -5,10 +5,11 @@ const { sendPushNotification } = require("../Global_Functions/firebasePushNotifi
 
 const httpError = (message, status) => Object.assign(new Error(message), { status });
 
-// Follow-up is allowed only while the request is still in play: "Pending" (which
-// includes partially-approved requests still moving through the approval chain).
-// Explicitly NOT "More Information" (ball is in the requester's court) or terminal.
-const FOLLOWUP_ELIGIBLE = new Set(["Pending"]);
+// Follow-up is allowed while the request is still in play ("Pending", which
+// includes partially-approved requests still moving through the chain) AND once
+// it's been "Approved" (to chase fulfilment / next steps). Explicitly NOT
+// "More Information" (ball is in the requester's court) or other terminal states.
+const FOLLOWUP_ELIGIBLE = new Set(["Pending", "Approved"]);
 const COOLDOWN_HOURS = Number(process.env.FOLLOWUP_COOLDOWN_HOURS || 24);
 const COOLDOWN_MS = COOLDOWN_HOURS * 60 * 60 * 1000;
 
@@ -23,7 +24,7 @@ function humanizeSince(date) {
  * Create a follow-up on an existing request. Never creates a new request.
  */
 exports.createFollowUp = async (user, orderId, note) => {
-  const order = await PurchaseOrder.findById(orderId).select("staff status PendingApprovals orderNumber Title").lean();
+  const order = await PurchaseOrder.findById(orderId).select("staff status PendingApprovals Approvals orderNumber Title").lean();
   if (!order) throw httpError("Request not found", 404);
 
   // Only the original requester may follow up (FR: requester is the sender).
@@ -45,8 +46,13 @@ exports.createFollowUp = async (user, orderId, note) => {
     throw httpError(`You already followed up ${humanizeSince(last.createdAt)}. You can follow up again after ${COOLDOWN_HOURS}h.`, 429);
   }
 
-  // Current approvers = the pending reviewers who still need to act.
-  const notifiedUserIds = [...new Set((order.PendingApprovals || []).map((p) => p.Reviewer).filter(Boolean).map(String))];
+  // Who to notify depends on where the request is:
+  //  • Pending  → the reviewers who still need to act (PendingApprovals).
+  //  • Approved → the approvers who already approved it (resolved from the
+  //    Approvals decision log — which stores names — back to user ids).
+  const notifiedUserIds = order.status === "Approved"
+    ? await resolveApproverIds(order)
+    : [...new Set((order.PendingApprovals || []).map((p) => p.Reviewer).filter(Boolean).map(String))];
 
   const followUp = await followUpRepo.create({
     order: orderId,
@@ -61,6 +67,19 @@ exports.createFollowUp = async (user, orderId, note) => {
 
   return followUp.toObject ? followUp.toObject() : followUp;
 };
+
+// For an Approved request there are no PendingApprovals left, so we notify the
+// people who approved it. The Approvals log only stores approver *names*, so we
+// resolve those back to user ids (best-effort). Prefer entries that are actual
+// approvals; fall back to everyone who acted if none are tagged "Approved".
+async function resolveApproverIds(order) {
+  const log = Array.isArray(order.Approvals) ? order.Approvals : [];
+  let names = [...new Set(log.filter((a) => a.status === "Approved").map((a) => a.admin).filter(Boolean))];
+  if (!names.length) names = [...new Set(log.map((a) => a.admin).filter(Boolean))];
+  if (!names.length) return [];
+  const users = await User.find({ name: { $in: names } }).select("_id").lean();
+  return users.map((u) => String(u._id));
+}
 
 async function notifyApprovers(order, followUp, user) {
   if (!followUp.notifiedUserIds?.length) return;

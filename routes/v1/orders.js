@@ -422,6 +422,11 @@ router.get("/", auth,monitorLogger,async (req, res) => {
         ]
       };
     }
+
+    // Approver "request history" toggle: narrow to only the caller's own requests.
+    if (req.query.mine === "true") {
+      queryWithApprovals = { staff: req.user.userId };
+    }
     const [total, orders] = await Promise.all([
       PurchaseOrder.countDocuments(queryWithApprovals),
       PurchaseOrder.find(queryWithApprovals)
