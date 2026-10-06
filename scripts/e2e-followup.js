@@ -94,6 +94,20 @@ async function main() {
   ck("Approved follow-up notifies the approver resolved from the log",
     (r.body?.data?.notifiedUserIds || []).map(String).includes(String(REV)), JSON.stringify(r.body?.data?.notifiedUserIds));
 
+  // 9. the follow-up PICKER data source: StaffRequests?statuses=Pending,Approved
+  //    must return Pending + Approved of ANY age (not just the month window) and
+  //    exclude terminal/More-Information. Prove it with an Approved PO backdated 90d.
+  const oldApproved = await PurchaseOrder.create({ Title: "Old approved", remarks: "x", staff: REQ, status: "Approved" });
+  await PurchaseOrder.updateOne({ _id: oldApproved._id }, { $set: { createdAt: new Date(Date.now() - 90 * 24 * 60 * 60 * 1000) } });
+  const rejected = await PurchaseOrder.create({ Title: "Rejected", remarks: "x", staff: REQ, status: "Rejected" });
+
+  r = await request(app).get(`/api/orders/StaffRequests`).query({ userId: String(REQ), statuses: "Pending,Approved" });
+  const rows = Array.isArray(r.body?.data) ? r.body.data : [];
+  const ids = rows.map((o) => String(o._id));
+  ck("picker loads only Pending/Approved", r.status === 200 && rows.length > 0 && rows.every((o) => ["Pending", "Approved"].includes(o.status)), JSON.stringify(rows.map((o) => o.status)));
+  ck("picker includes an Approved request older than the month window", ids.includes(String(oldApproved._id)), JSON.stringify(ids));
+  ck("picker excludes terminal (Rejected) requests", !ids.includes(String(rejected._id)), JSON.stringify(ids));
+
   await mongoose.connection.dropDatabase(); await rc.del(`session:${sess.req}`); await rc.del(`session:${sess.rev}`); await rc.quit(); await mongoose.disconnect();
   console.log("\n=== FOLLOW-UP E2E ===\n" + out.join("\n") + `\n\n${PASS} passed, ${FAIL} failed`);
   process.exit(FAIL ? 1 : 0);

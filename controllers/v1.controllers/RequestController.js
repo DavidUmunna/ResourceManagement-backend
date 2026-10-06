@@ -84,32 +84,40 @@ const GetOverallMonthlyRequests = async (req, res) => {
 
 const MonthlyStaffRequest=async(req,res)=>{
     try{
-        const {userId}=req.query
-        
+        const {userId, statuses}=req.query
+
         const query={}
         if (userId){
             query.staff=userId
         }
-       
-      
-        const now = new Date();
-        const startOfDay = new Date(Date.UTC(
-            now.getUTCFullYear(),
-            now.getUTCMonth(),
-            0, 0, 0, 0
-        ));
 
-        const endOfDay = new Date(Date.UTC(
-            now.getUTCFullYear(),
-            now.getUTCMonth(),
+        if (statuses) {
+            // Explicit status filter (e.g. the follow-up picker needs the user's
+            // Pending/Approved requests): return ALL matching requests regardless
+            // of age — the current-month window below would hide older ones.
+            const list = String(statuses).split(",").map((s) => s.trim()).filter(Boolean);
+            if (list.length) query.status = { $in: list };
+        } else {
+            // Default (dashboard monthly stats): limit to the current-month window.
+            const now = new Date();
+            const startOfDay = new Date(Date.UTC(
+                now.getUTCFullYear(),
+                now.getUTCMonth(),
+                0, 0, 0, 0
+            ));
 
-            23, 59, 59, 999
-        ));
+            const endOfDay = new Date(Date.UTC(
+                now.getUTCFullYear(),
+                now.getUTCMonth(),
 
-        query.createdAt = {
-            $gte: startOfDay,
-            $lte: endOfDay,
-        };
+                23, 59, 59, 999
+            ));
+
+            query.createdAt = {
+                $gte: startOfDay,
+                $lte: endOfDay,
+            };
+        }
         const Requests = await PurchaseOrder.find(query)
 
      
