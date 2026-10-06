@@ -59,3 +59,12 @@ exports.receivedApproved = async (req, res) => {
     return handleError(res, e, "receivedApproved");
   }
 };
+
+exports.resolve = async (req, res) => {
+  try {
+    const data = await service.markResolved(req.user, req.params.id, req.body.note);
+    return res.status(200).json({ success: true, data });
+  } catch (e) {
+    return handleError(res, e, "resolve");
+  }
+};

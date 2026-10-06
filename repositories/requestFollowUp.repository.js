@@ -26,3 +26,14 @@ exports.findReceivedByUser = (userId, limit = 50) =>
     .limit(limit)
     .populate("order", "orderNumber Title status urgency staff")
     .lean();
+
+// Unresolved follow-ups on an order that a given approver was notified on.
+exports.findUnresolvedForOrderByApprover = (orderId, approverId) =>
+  RequestFollowUp.find({ order: orderId, notifiedUserIds: approverId, resolved: { $ne: true } }).lean();
+
+// Mark all of this approver's unresolved follow-ups on an order as resolved.
+exports.resolveForOrderByApprover = (orderId, approverId, fields) =>
+  RequestFollowUp.updateMany(
+    { order: orderId, notifiedUserIds: approverId, resolved: { $ne: true } },
+    { $set: fields }
+  );

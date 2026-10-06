@@ -100,6 +100,17 @@ async function main() {
     r.status === 200 && (r.body.data || []).some((f) => String(f.order?._id) === String(approved._id)) && (r.body.data || []).every((f) => f.order?.status === "Approved"),
     JSON.stringify((r.body.data || []).map((f) => f.order?.status)));
 
+  // 8c. "Mark resolved": a non-notified user can't; the notified approver can,
+  //     which notifies the sender, drops it off the approver list, and flags Sent.
+  r = await call("post", `/api/orders/${approved._id}/followups/resolve`, sess.req).send({});
+  ck("non-notified user cannot resolve (404)", r.status === 404, `status ${r.status}`);
+  r = await call("post", `/api/orders/${approved._id}/followups/resolve`, sess.rev).send({ note: "handled, proceeding" });
+  ck("notified approver marks follow-up resolved (200)", r.status === 200 && (r.body?.data?.resolved || 0) >= 1, JSON.stringify(r.body));
+  r = await call("get", `/api/orders/followups/received-approved`, sess.rev);
+  ck("resolved follow-up drops off the approver's approved list", r.status === 200 && !(r.body.data || []).some((f) => String(f.order?._id) === String(approved._id)), JSON.stringify((r.body.data || []).map((f) => f.order?._id)));
+  r = await call("get", `/api/orders/followups/sent`, sess.req);
+  ck("requester's Sent shows the follow-up as resolved", r.status === 200 && (r.body.data || []).some((f) => String(f.order?._id) === String(approved._id) && f.resolved === true && f.resolvedByName === "Reviewer"), JSON.stringify((r.body.data || []).map((f) => ({ id: String(f.order?._id), resolved: f.resolved }))));
+
   // 9. the follow-up PICKER data source: StaffRequests?statuses=Pending,Approved
   //    must return Pending + Approved of ANY age (not just the month window) and
   //    exclude terminal/More-Information. Prove it with an Approved PO backdated 90d.

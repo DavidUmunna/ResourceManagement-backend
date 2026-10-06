@@ -43,6 +43,7 @@ router.get("/followups/received", auth, followUpController.received);  // approv
 router.get("/followups/escalated", auth, followUpController.escalatedReceived); // escalated POs I can act on
 router.get("/followups/received-approved", auth, followUpController.receivedApproved); // approved-request follow-ups (read-only FYI)
 router.post("/:id/followup", auth, followUpController.create);
+router.post("/:id/followups/resolve", auth, followUpController.resolve); // approver marks follow-up(s) resolved
 router.get("/:id/followups", auth, followUpController.listForOrder);
 
 // ── PO share link (public, tokenized PDF) ────────────────────────────────────
@@ -428,11 +429,35 @@ router.get("/", auth,monitorLogger,async (req, res) => {
     if (req.query.mine === "true") {
       queryWithApprovals = { staff: req.user.userId };
     }
+
+    // Deep-link focus: jump to the page that actually contains a given order, so a
+    // "Open request →" link always lands on it regardless of how deep it is. We
+    // rank the order under the SAME query+sort by counting the rows that sort
+    // before it (with _id as a deterministic final tiebreaker).
+    let effPage = page, effSkip = skip;
+    if (req.query.focus && mongoose.Types.ObjectId.isValid(req.query.focus)) {
+      const target = await PurchaseOrder.findOne({ ...queryWithApprovals, _id: req.query.focus })
+        .select("escalated escalatedAt createdAt").lean();
+      if (target) {
+        const esc = !!target.escalated;
+        const escAt = target.escalatedAt ?? null;
+        const before = { $and: [ queryWithApprovals, { $or: [
+          { escalated: { $gt: esc } },
+          { escalated: esc, escalatedAt: { $gt: escAt } },
+          { escalated: esc, escalatedAt: escAt, createdAt: { $gt: target.createdAt } },
+          { escalated: esc, escalatedAt: escAt, createdAt: target.createdAt, _id: { $gt: new mongoose.Types.ObjectId(req.query.focus) } },
+        ] } ] };
+        const index = await PurchaseOrder.countDocuments(before);
+        effPage = Math.floor(index / limit) + 1;
+        effSkip = (effPage - 1) * limit;
+      }
+    }
+
     const [total, orders] = await Promise.all([
       PurchaseOrder.countDocuments(queryWithApprovals),
       PurchaseOrder.find(queryWithApprovals)
-      .sort({ escalated: -1, escalatedAt: -1, createdAt: -1 })
-      .skip(skip)
+      .sort({ escalated: -1, escalatedAt: -1, createdAt: -1, _id: -1 })
+      .skip(effSkip)
       .limit(limit)
       .populate("staff", "-password -__v  -canApprove -NotificationToken ")
       .populate("PendingApprovals.Reviewer")
@@ -447,7 +472,7 @@ router.get("/", auth,monitorLogger,async (req, res) => {
   
     
     res.status(200).json({data:response,
-      Pagination:getPagingData(total,page,limit)});
+      Pagination:getPagingData(total,effPage,limit)});
   } catch (error) {
     console.error(error)
     //res.status(500).json({ message: "Server error", error });

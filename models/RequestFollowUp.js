@@ -11,6 +11,12 @@ const RequestFollowUpSchema = new Schema(
     note: { type: String, default: null },
     // The approver(s) notified at the time of this follow-up (audit).
     notifiedUserIds: [{ type: Schema.Types.ObjectId, ref: "user" }],
+    // Resolution: a notified approver can "Mark resolved" to tell the sender it's handled.
+    resolved: { type: Boolean, default: false, index: true },
+    resolvedBy: { type: Schema.Types.ObjectId, ref: "user", default: null },
+    resolvedByName: { type: String, default: null }, // snapshot for display
+    resolvedAt: { type: Date, default: null },
+    resolutionNote: { type: String, default: null },
   },
   { timestamps: true } // createdAt = when the follow-up was sent
 );

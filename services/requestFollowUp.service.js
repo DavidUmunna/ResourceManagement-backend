@@ -112,15 +112,49 @@ exports.listSent = (userId) => followUpRepo.findSentByUser(userId);
 // actionable (Pending), so the dashboard card shows what I can act on now.
 exports.listReceived = async (userId) => {
   const rows = await followUpRepo.findReceivedByUser(userId);
-  return rows.filter((f) => f.order && f.order.status === "Pending");
+  return rows.filter((f) => f.order && f.order.status === "Pending" && !f.resolved);
 };
+
+// An approver who was notified on a request's follow-up(s) marks them resolved,
+// which notifies the follow-up sender(s) that their chase has been handled.
+exports.markResolved = async (user, orderId, note) => {
+  const pending = await followUpRepo.findUnresolvedForOrderByApprover(orderId, user.userId);
+  if (!pending.length) throw httpError("No follow-up awaiting your resolution on this request", 404);
+
+  const resolutionNote = note && String(note).trim() ? String(note).trim() : null;
+  await followUpRepo.resolveForOrderByApprover(orderId, user.userId, {
+    resolved: true, resolvedBy: user.userId, resolvedByName: user.name, resolvedAt: new Date(), resolutionNote,
+  });
+
+  notifyResolution(orderId, pending, user, resolutionNote).catch((e) => console.error("resolution push failed:", e.message));
+  return { resolved: pending.length };
+};
+
+async function notifyResolution(orderId, followUps, approver, note) {
+  const order = await PurchaseOrder.findById(orderId).select("Title orderNumber").lean();
+  const requestLabel = order?.Title || order?.orderNumber || "your request";
+  const senderIds = [...new Set(followUps.map((f) => String(f.requestedBy)).filter(Boolean))];
+  if (!senderIds.length) return;
+  const users = await User.find({ _id: { $in: senderIds } }).select("NotificationToken").lean();
+  const tokens = users
+    .flatMap((u) => (Array.isArray(u.NotificationToken) ? u.NotificationToken : u.NotificationToken ? [u.NotificationToken] : []))
+    .filter(Boolean);
+  const body = note
+    ? `${approver.name} marked your follow-up on ${requestLabel} resolved: "${note}"`
+    : `${approver.name} marked your follow-up on ${requestLabel} resolved`;
+  await Promise.allSettled(
+    tokens.map((t) => sendPushNotification(t, "Follow-up resolved", body, {
+      type: "followup_resolved", orderId: String(orderId), url: `/admin/requestlist#order-${orderId}`,
+    }))
+  );
+}
 
 // Follow-ups I was notified on where the request is now Approved. These are
 // informational (nothing to approve/reject) — the dashboard shows them as
 // read-only FYI rows so an approved-request follow-up isn't push-only.
 exports.listReceivedApproved = async (userId) => {
   const rows = await followUpRepo.findReceivedByUser(userId);
-  return rows.filter((f) => f.order && f.order.status === "Approved");
+  return rows.filter((f) => f.order && f.order.status === "Approved" && !f.resolved);
 };
 
 // Escalated requests I can act on now: escalated + still Pending + I'm one of the
