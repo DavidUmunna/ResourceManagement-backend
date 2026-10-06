@@ -94,6 +94,12 @@ async function main() {
   ck("Approved follow-up notifies the approver resolved from the log",
     (r.body?.data?.notifiedUserIds || []).map(String).includes(String(REV)), JSON.stringify(r.body?.data?.notifiedUserIds));
 
+  // 8b. the approver now sees that approved-request follow-up in their read-only FYI list
+  r = await call("get", `/api/orders/followups/received-approved`, sess.rev);
+  ck("approver 'received-approved' shows the approved follow-up",
+    r.status === 200 && (r.body.data || []).some((f) => String(f.order?._id) === String(approved._id)) && (r.body.data || []).every((f) => f.order?.status === "Approved"),
+    JSON.stringify((r.body.data || []).map((f) => f.order?.status)));
+
   // 9. the follow-up PICKER data source: StaffRequests?statuses=Pending,Approved
   //    must return Pending + Approved of ANY age (not just the month window) and
   //    exclude terminal/More-Information. Prove it with an Approved PO backdated 90d.

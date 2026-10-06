@@ -41,6 +41,7 @@ const followUpController = require("../../controllers/v1.controllers/requestFoll
 router.get("/followups/sent", auth, followUpController.sent);          // requester dashboard
 router.get("/followups/received", auth, followUpController.received);  // approver dashboard
 router.get("/followups/escalated", auth, followUpController.escalatedReceived); // escalated POs I can act on
+router.get("/followups/received-approved", auth, followUpController.receivedApproved); // approved-request follow-ups (read-only FYI)
 router.post("/:id/followup", auth, followUpController.create);
 router.get("/:id/followups", auth, followUpController.listForOrder);
 

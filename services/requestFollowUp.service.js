@@ -115,6 +115,14 @@ exports.listReceived = async (userId) => {
   return rows.filter((f) => f.order && f.order.status === "Pending");
 };
 
+// Follow-ups I was notified on where the request is now Approved. These are
+// informational (nothing to approve/reject) — the dashboard shows them as
+// read-only FYI rows so an approved-request follow-up isn't push-only.
+exports.listReceivedApproved = async (userId) => {
+  const rows = await followUpRepo.findReceivedByUser(userId);
+  return rows.filter((f) => f.order && f.order.status === "Approved");
+};
+
 // Escalated requests I can act on now: escalated + still Pending + I'm one of the
 // pending reviewers. Same "awaiting your action" scope as listReceived, so the
 // dashboard attention card can surface nudged AND escalated requests together.

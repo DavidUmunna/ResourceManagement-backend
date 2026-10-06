@@ -50,3 +50,12 @@ exports.escalatedReceived = async (req, res) => {
     return handleError(res, e, "escalatedReceived");
   }
 };
+
+exports.receivedApproved = async (req, res) => {
+  try {
+    const data = await service.listReceivedApproved(req.user.userId);
+    return res.status(200).json({ success: true, data });
+  } catch (e) {
+    return handleError(res, e, "receivedApproved");
+  }
+};
