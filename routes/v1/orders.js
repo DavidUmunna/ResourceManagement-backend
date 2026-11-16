@@ -8,7 +8,6 @@ const multer = require("multer");
 const path = require("path");
 const user=require("../../models/users_")
 const fs = require("fs");
-const file=require("../../models/file")
 const auth=require("../../middlewares/check-auth")
 const uploadDir = path.join(__dirname, "../uploads");
 const exporttoexcel=require("../../exporttoexcel")
@@ -32,9 +31,9 @@ const twoFactorVerify = require("../../middlewares/TwoFactorVerify");
 const UAParser = require("ua-parser-js");
 const { CreateSignature } = require("../../controllers/v1.controllers/Signature_Controllers");
 const { sendPushNotification } = require("../../Global_Functions/firebasePushNotification");
-const { deleteFileFromCloud } = require("../../googlecloudstorage.service");
-const { deleteFileFromDrive } = require("../../googledriveservice");
 const followUpController = require("../../controllers/v1.controllers/requestFollowUp.controllers");
+const { createPurchaseOrder, precheckPurchaseOrder, releasePrecheck } = require("../../services/purchaseOrderCreate.service");
+const { cascadeDeleteFile } = require("../../services/attachmentCleanup.service");
 
 // ── Request follow-ups (nudge a pending request without duplicating it) ──────
 // Static /followups/* before the generic /:id routes.
@@ -636,62 +635,135 @@ router.get('/department/all', auth,async (req, res) => {
 
 
 
-// Create a new purchase Request
+/**
+ * @swagger
+ * /api/orders/precheck:
+ *   post:
+ *     summary: Reserve a purchase-order submission before uploading its attachment
+ *     description: |
+ *       Call before `POST /api/fileupload/create`. Takes the duplicate-content lock so a
+ *       rejected duplicate never uploads a file. Send the same body you will send to
+ *       `POST /api/orders` (attachments excluded) and the same `Idempotency-Key`.
+ *     tags: [Orders]
+ *     parameters:
+ *       - in: header
+ *         name: Idempotency-Key
+ *         required: true
+ *         schema: { type: string, maxLength: 100, pattern: '^[A-Za-z0-9_-]+$' }
+ *     requestBody:
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               Title: { type: string }
+ *               supplier: { type: string }
+ *               products: { type: array, items: { type: object } }
+ *               confirmDuplicate: { type: boolean }
+ *     responses:
+ *       200: { description: "`{ ok: true }` — go ahead and upload/create; or `{ replayed: true, newOrder }` — this attempt already created an order" }
+ *       400: { description: Missing/invalid Idempotency-Key or invalid products }
+ *       409: { description: POSSIBLE_DUPLICATE — an identical order was submitted recently (or is being submitted) }
+ *       422: { description: IDEMPOTENCY_KEY_REUSED — the key was used for different content }
+ */
+router.post("/precheck", auth, async (req, res) => {
+  try {
+    const { status, body } = await precheckPurchaseOrder(req);
+    res.status(status).json(body);
+  } catch (error) {
+    console.error("Error prechecking purchase order:", error);
+    res.status(500).json({ success: false, message: "Error checking purchase order" });
+  }
+});
+
+/**
+ * @swagger
+ * /api/orders/precheck/release:
+ *   post:
+ *     summary: Release a precheck reservation after an abandoned submission attempt
+ *     description: No-op once the attempt has created an order.
+ *     tags: [Orders]
+ *     parameters:
+ *       - in: header
+ *         name: Idempotency-Key
+ *         required: true
+ *         schema: { type: string }
+ *     responses:
+ *       200: { description: "`{ ok: true, released: <count> }`" }
+ */
+router.post("/precheck/release", auth, async (req, res) => {
+  try {
+    const { status, body } = await releasePrecheck(req);
+    res.status(status).json(body);
+  } catch (error) {
+    console.error("Error releasing purchase order precheck:", error);
+    res.status(500).json({ success: false, message: "Error releasing reservation" });
+  }
+});
+
+/**
+ * @swagger
+ * /api/orders:
+ *   post:
+ *     summary: Create a purchase order (duplicate-protected)
+ *     description: |
+ *       `staff`, `email` and `Department` come from the authenticated session, not the body.
+ *       Send an `Idempotency-Key` per submission attempt: a retry of the same attempt returns
+ *       the order it already created (200). An identical order (same staff, supplier, Title and
+ *       products) within `PO_DUPLICATE_WINDOW_MINUTES` is rejected with 409 unless
+ *       `confirmDuplicate: true` is sent.
+ *     tags: [Orders]
+ *     parameters:
+ *       - in: header
+ *         name: Idempotency-Key
+ *         required: false
+ *         schema: { type: string, maxLength: 100, pattern: '^[A-Za-z0-9_-]+$' }
+ *     requestBody:
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [products, remarks]
+ *             properties:
+ *               Title: { type: string }
+ *               supplier: { type: string }
+ *               products:
+ *                 type: array
+ *                 items: { type: object, properties: { name: { type: string }, quantity: { type: number }, price: { type: number } } }
+ *               remarks: { type: string }
+ *               urgency: { type: string, enum: [VeryUrgent, Urgent, NotUrgent] }
+ *               targetDepartment: { type: string }
+ *               fileRefs: { type: string, description: File id from POST /api/fileupload/create }
+ *               confirmDuplicate: { type: boolean, description: Create even though an identical order was submitted recently }
+ *     responses:
+ *       201: { description: "Created — `{ success: true, newOrder }`" }
+ *       200: { description: "Idempotent replay — `{ success: true, replayed: true, newOrder }` (the order this key already created)" }
+ *       400: { description: Invalid products / maintenance fields / Idempotency-Key }
+ *       401: { description: Not authenticated }
+ *       404: { description: Session user not found }
+ *       409:
+ *         description: POSSIBLE_DUPLICATE
+ *         content:
+ *           application/json:
+ *             example:
+ *               code: POSSIBLE_DUPLICATE
+ *               message: You submitted an identical purchase order a few minutes ago.
+ *               existingOrder: { id: 6afac36325667c482460234e, orderNumber: PO-1794818915942, createdAt: "2026-11-16T08:48:35.947Z" }
+ *               inProgress: false
+ *       422: { description: IDEMPOTENCY_KEY_REUSED — same key, different content }
+ */
 router.post("/", auth, async (req, res) => {
   try {
-    const {
-      supplier,
-      orderedBy,
-      products,
-      email,
-      filenames,
-      urgency,
-      remarks,
-      Title,
-      staff,
-      role,
-      targetDepartment,
-      isMaintenance,
-      assetCategory,
-      assetSubCategory
-    } = req.body;
-
-    if (!Array.isArray(products)) {
-      return res.status(400).json({ error: "Products must be an array" });
+    const outcome = await createPurchaseOrder(req);
+    if (!outcome.created) {
+      return res.status(outcome.status).json(outcome.body);
     }
 
-    // A maintenance request must name the asset sub-category it applies to
-    if (isMaintenance && (!assetSubCategory || !assetCategory)) {
-      return res.status(400).json({ error: "assetCategory and assetSubCategory are required for a maintenance request" });
-    }
-
-    const User = await user.findOne({ email });
-
-    if (!User) {
-      return res.status(404).json({ error: "User not found" });
-    }
-
+    const new_Request = outcome.body.newOrder;
+    const User = outcome.user;
+    const { Title, targetDepartment } = req.body;
+    const email = User.email;
     const Department = User.Department;
-
-    const newOrder = new PurchaseOrder({
-      supplier,
-      Title,
-      orderedBy,
-      email,
-      products,
-      urgency,
-      filenames,
-      remarks,
-      Department,
-      staff,
-      role,
-      fileRefs: req.body.fileRefs,
-      targetDepartment,
-      isMaintenance: !!isMaintenance,
-      ...(isMaintenance && { assetCategory, assetSubCategory }),
-    });
-
-    const new_Request = await newOrder.save();
 
     await ValidatePendingApprovals(new_Request._id);
 
@@ -727,7 +799,7 @@ router.post("/", auth, async (req, res) => {
   )
 );
 
-    res.status(200).json({ success: true, newOrder: new_Request });
+    res.status(201).json(outcome.body);
   } catch (error) {
     console.error("Error creating purchase order:", error);
     res.status(500).json({
@@ -1728,23 +1800,7 @@ router.delete("/:id", auth, async (req, res) => {
     await order.deleteOne();
 
     if (order.fileRefs) {
-      const fileDoc = await file.findById(order.fileRefs);
-      if (fileDoc) {
-        await Promise.allSettled(
-          (fileDoc.files || []).map(async (f) => {
-            try {
-              if (f.gcsObjectName) {
-                await deleteFileFromCloud(f.gcsObjectName);
-              } else if (f.driveFileId) {
-                await deleteFileFromDrive(f.driveFileId);
-              }
-            } catch (err) {
-              console.error("Failed to delete attachment from storage:", err.message);
-            }
-          })
-        );
-        await file.findByIdAndDelete(order.fileRefs);
-      }
+      await cascadeDeleteFile(order.fileRefs);
     }
 
     res.json({ message: "Order deleted successfully" });

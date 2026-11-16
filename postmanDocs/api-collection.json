@@ -163,16 +163,89 @@
           }
         },
         {
+          "name": "Precheck Order (before upload)",
+          "request": {
+            "method": "POST",
+            "description": "Reserve a PO submission BEFORE uploading its attachment (POST /api/fileupload/create), so a rejected duplicate never uploads a file. Use the same Idempotency-Key and body you will send to Create Order. 200 { ok: true } = go ahead; 200 { replayed: true, newOrder } = this attempt already created an order; 409 POSSIBLE_DUPLICATE; 422 IDEMPOTENCY_KEY_REUSED.",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Idempotency-Key", "value": "{{$guid}}", "description": "Required. One key per submission attempt; [A-Za-z0-9-_], max 100 chars." }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"supplier\": \"ABC Ltd\",\n  \"products\": [{\"name\": \"Item A\", \"quantity\": 2, \"price\": 1000}],\n  \"urgency\": \"Urgent\",\n  \"remarks\": \"Please expedite\",\n  \"Title\": \"Laptop Purchase\"\n}" },
+            "url": { "raw": "{{baseUrl}}/api/orders/precheck", "host": ["{{baseUrl}}"], "path": ["api", "orders", "precheck"] }
+          }
+        },
+        {
+          "name": "Release Precheck (abandoned attempt)",
+          "request": {
+            "method": "POST",
+            "description": "Free a precheck reservation after the attempt was abandoned (e.g. the upload failed). No-op once the attempt created an order.",
+            "header": [
+              { "key": "Idempotency-Key", "value": "<same key as the precheck>" }
+            ],
+            "url": { "raw": "{{baseUrl}}/api/orders/precheck/release", "host": ["{{baseUrl}}"], "path": ["api", "orders", "precheck", "release"] }
+          }
+        },
+        {
           "name": "Create Order",
           "request": {
             "method": "POST",
+            "description": "Create a purchase order. staff/email/Department come from the session, not the body. Send an Idempotency-Key per submission attempt: retrying the same attempt returns the order it already created (200, replayed: true). An identical order (same staff, supplier, Title and products) within PO_DUPLICATE_WINDOW_MINUTES is rejected with 409 POSSIBLE_DUPLICATE unless confirmDuplicate: true is sent. 422 IDEMPOTENCY_KEY_REUSED = same key, different content.",
             "header": [
               { "key": "Authorization", "value": "Bearer {{bearerToken}}", "type": "text" },
-              { "key": "Content-Type", "value": "application/json" }
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Idempotency-Key", "value": "{{$guid}}", "description": "Optional (old clients may omit it). One key per submission attempt; reuse it when retrying the same attempt." }
             ],
-            "body": { "mode": "raw", "raw": "{\n  \"supplier\": \"ABC Ltd\",\n  \"orderedBy\": \"John Doe\",\n  \"email\": \"john@example.com\",\n  \"products\": [{\"name\": \"Item A\", \"quantity\": 2, \"price\": 1000}],\n  \"urgency\": \"High\",\n  \"remarks\": \"Please expedite\",\n  \"Title\": \"Laptop Purchase\",\n  \"staff\": \"<staffId>\",\n  \"role\": \"procurement_officer\",\n  \"targetDepartment\": \"IT\"\n}" },
+            "body": { "mode": "raw", "raw": "{\n  \"supplier\": \"ABC Ltd\",\n  \"orderedBy\": \"John Doe\",\n  \"products\": [{\"name\": \"Item A\", \"quantity\": 2, \"price\": 1000}],\n  \"urgency\": \"Urgent\",\n  \"remarks\": \"Please expedite\",\n  \"Title\": \"Laptop Purchase\",\n  \"role\": \"procurement_officer\",\n  \"targetDepartment\": \"IT\",\n  \"fileRefs\": \"<file id from /api/fileupload/create>\",\n  \"confirmDuplicate\": false\n}" },
             "url": { "raw": "{{baseUrl}}/api/orders", "host": ["{{baseUrl}}"], "path": ["api", "orders"] }
-          }
+          },
+          "response": [
+            {
+              "name": "201 Created",
+              "originalRequest": { "method": "POST", "url": { "raw": "{{baseUrl}}/api/orders", "host": ["{{baseUrl}}"], "path": ["api", "orders"] } },
+              "status": "Created",
+              "code": 201,
+              "_postman_previewlanguage": "json",
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "body": "{\n  \"success\": true,\n  \"newOrder\": { \"_id\": \"6afac36325667c482460234e\", \"orderNumber\": \"PO-1794818915942\", \"status\": \"Pending\" }\n}"
+            },
+            {
+              "name": "200 Idempotent replay",
+              "originalRequest": { "method": "POST", "url": { "raw": "{{baseUrl}}/api/orders", "host": ["{{baseUrl}}"], "path": ["api", "orders"] } },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "body": "{\n  \"success\": true,\n  \"replayed\": true,\n  \"newOrder\": { \"_id\": \"6afac36325667c482460234e\", \"orderNumber\": \"PO-1794818915942\", \"status\": \"Pending\" }\n}"
+            },
+            {
+              "name": "409 Possible duplicate",
+              "originalRequest": { "method": "POST", "url": { "raw": "{{baseUrl}}/api/orders", "host": ["{{baseUrl}}"], "path": ["api", "orders"] } },
+              "status": "Conflict",
+              "code": 409,
+              "_postman_previewlanguage": "json",
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "body": "{\n  \"success\": false,\n  \"code\": \"POSSIBLE_DUPLICATE\",\n  \"message\": \"You submitted an identical purchase order a few minutes ago.\",\n  \"existingOrder\": { \"id\": \"6afac36325667c482460234e\", \"orderNumber\": \"PO-1794818915942\", \"createdAt\": \"2026-11-16T08:48:35.947Z\" },\n  \"inProgress\": false\n}"
+            },
+            {
+              "name": "409 Identical order in progress",
+              "originalRequest": { "method": "POST", "url": { "raw": "{{baseUrl}}/api/orders", "host": ["{{baseUrl}}"], "path": ["api", "orders"] } },
+              "status": "Conflict",
+              "code": 409,
+              "_postman_previewlanguage": "json",
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "body": "{\n  \"success\": false,\n  \"code\": \"POSSIBLE_DUPLICATE\",\n  \"message\": \"An identical purchase order is being submitted right now.\",\n  \"existingOrder\": null,\n  \"inProgress\": true\n}"
+            },
+            {
+              "name": "422 Idempotency key reused",
+              "originalRequest": { "method": "POST", "url": { "raw": "{{baseUrl}}/api/orders", "host": ["{{baseUrl}}"], "path": ["api", "orders"] } },
+              "status": "Unprocessable Entity",
+              "code": 422,
+              "_postman_previewlanguage": "json",
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "body": "{\n  \"code\": \"IDEMPOTENCY_KEY_REUSED\",\n  \"message\": \"This Idempotency-Key was already used for a different purchase order.\"\n}"
+            }
+          ]
         },
         {
           "name": "Export Orders",

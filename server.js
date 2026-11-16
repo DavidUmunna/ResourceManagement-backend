@@ -67,26 +67,9 @@ const { handleCspReport } = require("./controllers/cspReport.controller");
 const app = express();
 
 // CORS must be first — before helmet and any other middleware
-// so that preflight OPTIONS requests get the correct headers
-const corsOptions = {
-  origin: [
-    "http://localhost:3000",
-    "http://localhost:5175",
-    "http://127.0.0.1:5000",
-    "http://localhost:3001",
-    "http://127.0.0.1:3000",
-    "http://localhost:3002",
-    "http://localhost:5000",
-    "http://192.168.137.108:3000",
-    "http://192.168.137.108:5000",
-    "https://erp.haldengroup.ng",
-    // Site Approver Portal (separate app). Add the production portal origin here.
-    "http://localhost:5173",
-    "http://localhost:4173",
-    "https://approver.haldengroup.ng",
-  ],
-  credentials: true,
-};
+// so that preflight OPTIONS requests get the correct headers.
+// See config/cors.js — custom headers (incl. Idempotency-Key) must stay allowed.
+const corsOptions = require("./config/cors");
 app.use(cors(corsOptions));
 
 
