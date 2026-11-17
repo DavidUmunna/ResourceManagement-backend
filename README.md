@@ -123,6 +123,8 @@ the speculative `badgeId` field was removed.
 
 ### Migration
 - `maintenanceScripts/migrateSkipsRelational.js` — idempotent, **dry-run by default** (`--commit` to write): backfills skip lifecycle fields, seeds Driver/Truck from legacy free-text names, and backfills ComplianceLog discriminators.
+- `maintenanceScripts/findDuplicateOrders.js` — **read-only** (no `--commit`): reports possible duplicate POs (same staff + Title + supplier + total within `--window-minutes`, default 60) and duplicate `orderNumber` values. `--csv <path>` writes the report to CSV.
+- `maintenanceScripts/syncOrderIndexes.js` — **dry-run by default** (`--commit` to create): builds the duplicate-PO indexes (unique `orderNumber`, sparse unique `idempotencyKey`, `submissionFingerprint`, and the `OrderSubmissionLock.expiresAt` **TTL** index). Uses `createIndexes()` (never drops indexes) and aborts if duplicate `orderNumber` values exist.
 
 ### End-to-end smoke tests (real Mongo + Redis, throwaway DBs)
 Beyond the mocked Jest suites, these exercise the running stack (they caught real bugs the mocks missed — e.g. the compliance `action` enum and a rental date-off-by-one):
@@ -133,6 +135,7 @@ node scripts/e2e-project.js    # project assign / populate / filter
 node scripts/e2e-revenue.js    # revenue math, per-skip override, Excel export
 node scripts/e2e-insights.js   # dashboard KPIs, throughput, turnaround, by-stream/project
 node scripts/e2e-approver.js   # approver provisioning + self-service password recovery
+node scripts/e2e-po-dedupe.js  # duplicate-PO prevention: idempotent replay, 409 + confirm, 5-way concurrency, TTL index
 ```
 
 ## Requirements
@@ -188,7 +191,8 @@ Docs are generated from JSDoc blocks in routes/controllers/models using `swagger
 ## Key Modules
 - **File tracking**: `routes/v2/FileTracking.js`, `services/FileTracking.service.js`, `repositories/FileTracking.repository.js`, `Global_Functions/checkExpiry.js` (daily expiry cron).
 - **Compliance logs**: `models/ComplianceLog.js`, `routes/v2/ComplianceLog.js`, `controllers/v2.controllers/ComplianceLog.controllers.js`, `services/ComplianceLog.service.js`, `repositories/ComplianceLog.repository.js`.
-- **Orders v2**: `routes/v2/order.routes.js`, `controllers/v2.controllers/orders.controllers.js`, `services/order.service.js`, `repositories/order.repository.js`.
+- **Orders v2**: `routes/v2/order.routes.js`, `controllers/v2.controllers/orders.controllers.js`, `services/order.service.js`, `repositories/order.repository.js`. (The v2 order router is not mounted in `server.js`; the live PO create path is `POST /api/orders` in `routes/v1/orders.js`.)
+- **PO creation & duplicate prevention**: `services/purchaseOrderCreate.service.js` (create / precheck — every PO create path must go through it), `services/orderDedupe.service.js` (content fingerprint + atomic submission lock), `models/OrderSubmissionLock.js` (TTL lock), `services/attachmentCleanup.service.js` (attachment cascade / discard).
 - **Tender management**: `routes/v1/tender.js`, `services/tender.service.js`, `services/tenderUpload.service.js`, `repositories/tender.repository.js`, `repositories/documents.repository.js`, `repositories/drafts.repository.js`, `repositories/requirements.repository.js`, `repositories/checklist.repository.js`.
 - **Feedback**: `routes/v2/feedback.routes.js`, `services/FeedbackService.js`, `repositories/FeedbackRepository.js`, `models/Feedback.js`.
 - **Notifications**: `controllers/v1.controllers/notification.js`, `services/NotificationService.js`, `emailnotification/emailNotification.js`, `pushNotifications/fileTrack.js`, `Global_Functions/firebasePushNotification.js`.
@@ -243,7 +247,20 @@ procurement_api/
 
 **Lifecycle**: `Pending` → `Approved` (all approvers sign off) → optionally `Escalated` → `Paid`
 
-1. **Create**: `POST /api/orders` — saved with status `"Pending"`.
+1. **Create**: `POST /api/orders` — saved with status `"Pending"`. `staff`, `email` and `Department` come from the session, never the body. Duplicate-protected:
+   - **`Idempotency-Key` header** (optional, `[A-Za-z0-9-_]`, max 100 chars): one key per submission attempt. Retrying the same attempt returns the order it already created (**200**, `replayed: true`) instead of creating another.
+   - **Identical content** (same staff, supplier, Title and products — remarks/urgency/attachments ignored) within `PO_DUPLICATE_WINDOW_MINUTES` → **409 `POSSIBLE_DUPLICATE`** with `existingOrder` (or `inProgress: true` while the first submission is still running).
+   - **`confirmDuplicate: true`** in the body creates it anyway; the order is flagged in `duplicateOverride` and an audit-log entry (`PO_DUPLICATE_OVERRIDE`) is written.
+   - **422 `IDEMPOTENCY_KEY_REUSED`**: the same key was sent with different content.
+   - **`POST /api/orders/precheck`** (requires `Idempotency-Key`): call it *before* uploading the attachment so a rejected duplicate never uploads a file; same 200/409/422 semantics. `POST /api/orders/precheck/release` frees the reservation if the attempt is abandoned.
+   - Old clients without the header/precheck still work; if their create is rejected or fails, the attachment they uploaded for it is discarded (only Files they own that no order references).
+   - Responses: **201** created, **200** replay, **409** possible duplicate, **422** key reused.
+
+   ```json
+   // 409
+   { "code": "POSSIBLE_DUPLICATE", "message": "You submitted an identical purchase order a few minutes ago.",
+     "existingOrder": { "id": "…", "orderNumber": "PO-…", "createdAt": "…" }, "inProgress": false }
+   ```
 2. **Approve**: `PUT /api/orders/:id/approve` — admin adds their name to the `Approvals` array.
 3. **Escalate**: `PUT /api/orders/:id/escalate` — owner only; requires at least one pending approval remaining.
 4. **De-escalate**: `PUT /api/orders/:id/deescalate` — owner or approver; removes escalation flag.
@@ -266,7 +283,7 @@ procurement_api/
 
 Files are stored in Google Cloud Storage (`halden-backend-storage`, private bucket, uniform access control).
 
-- **Upload**: `POST /api/upload` — multipart file upload; stores object in GCS and saves `gcsObjectName` + `gcsBucket` on the file document.
+- **Upload**: `POST /api/fileupload/create` — multipart file upload (**requires a session**); stores object in GCS and saves `gcsObjectName` + `gcsBucket` on the file document, with the uploader recorded as `staff` (owner).
 - **Download**: `GET /api/upload/:fileId` — streams from GCS using `gcsObjectName`; falls back to Google Drive using `driveFileId` for records uploaded before the GCS migration.
 
 Files are cascade-deleted from GCS (or Drive) when their parent order is deleted.
@@ -396,6 +413,7 @@ Tracks physical waste skips (containers) mobilised and demobilised at the Waste 
 | `TERMII_SENDER_ID` | No | 🆕 Termii approved sender ID (default `Halden`). |
 | `TERMII_BASE_URL` | No | 🆕 Termii base URL override (default `https://api.ng.termii.com`). |
 | `SKIP_RENTAL_NAG_LEAD_DAYS` | No | 🆕 Days before a rented skip's expiry to start the daily nag (default `3`). |
+| `PO_DUPLICATE_WINDOW_MINUTES` | No | 🆕 How long after a PO is submitted an identical one from the same staff member counts as a possible duplicate (default `10`). |
 | `APP_PASS` | No | App-specific email password (alternative) |
 | `FRONTEND_URL` | Yes | Frontend origin for CORS |
 | `FRONTEND_BASED_URL` | No | Alternate frontend base URL |
@@ -425,6 +443,8 @@ GitHub Actions runs the test suite on every push and pull request to `main`:
 | 401 | Invalid or missing authentication token |
 | 403 | Insufficient permissions |
 | 404 | Resource not found |
+| 409 | Conflict — e.g. `POSSIBLE_DUPLICATE`: an identical purchase order was submitted recently (resend with `confirmDuplicate: true` to create it anyway) |
+| 422 | `IDEMPOTENCY_KEY_REUSED` — the `Idempotency-Key` was already used for different content |
 | 500 | Unexpected server error |
 
 ## Contributing

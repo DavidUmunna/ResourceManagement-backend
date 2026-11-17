@@ -8,6 +8,7 @@ const router = express.Router();
 const { uploadFileToCloud, downloadFileFromCloud } = require("../../googlecloudstorage.service");
 const { downloadFileFromDrive } = require("../../googledriveservice")
 const sanitize=require("sanitize-filename")
+const auth=require("../../middlewares/check-auth")
 const csrf=require("csurf")
 const csrfProtection=csrf({cookie:true})
 
@@ -18,9 +19,12 @@ if (!fs.existsSync(uploadDir)) {
 }
 
 
- router.post("/create", upload.array("file", 5), async (req, res) => {
+// Authenticated: the uploader is recorded as the File owner, which lets a
+// rejected/failed purchase-order create safely discard an attachment it will
+// never use (services/attachmentCleanup.service.js).
+ router.post("/create", auth, upload.array("file", 5), async (req, res) => {
   try {
-    const { userId } = req.body;
+    const staff = req.user.userId;
 
     const allowedTypes = [
       "image/jpeg",
@@ -50,7 +54,6 @@ if (!fs.existsSync(uploadDir)) {
         fs.unlinkSync(file.path);
 
         return {
-          staff: userId,
           filename: file.originalname,
           gcsObjectName: cloudFile.objectName,
           gcsBucket: cloudFile.bucket,
@@ -58,7 +61,7 @@ if (!fs.existsSync(uploadDir)) {
       })
     );
 
-    const newFile = new file_({ files: uploadedFiles });
+    const newFile = new file_({ staff, files: uploadedFiles });
     await newFile.save();
 
     return res.status(200).json({

@@ -76,6 +76,20 @@ const PurchaseOrderSchema = new Schema({
   assetCategory:                 { type: String },   // e.g. 'waste_management'
   assetSubCategory:              { type: String },   // chosen asset sub-category
   maintenanceExpenditureApplied: { type: Boolean, default: false },
+
+  // ── Duplicate-submission protection (see services/orderDedupe.service.js) ──
+  // Client-generated key per submission attempt (Idempotency-Key header).
+  // Unique + sparse so concurrent retries of the same attempt can't both save.
+  idempotencyKey:        { type: String, index: { unique: true, sparse: true } },
+  // sha256 of staff + supplier + Title + products; used to find "same content".
+  submissionFingerprint: { type: String, index: true },
+  // Set when the requester confirmed creating an order identical to a recent one.
+  duplicateOverride: {
+    confirmed: { type: Boolean, default: false },
+    by:        { type: Schema.Types.ObjectId, ref: 'user' },
+    at:        { type: Date },
+    similarTo: { type: Schema.Types.ObjectId },
+  },
 }, { timestamps: true });
 
 PurchaseOrderSchema.plugin(timestamps);

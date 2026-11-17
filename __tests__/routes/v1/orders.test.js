@@ -90,9 +90,19 @@ const mockUser = {
 };
 
 jest.mock('../../../models/users_', () => ({
-  findOne: jest.fn(),
-  find:    jest.fn().mockReturnValue({ select: jest.fn().mockResolvedValue([]) }),
+  findOne:  jest.fn(),
+  findById: jest.fn(),
+  find:     jest.fn().mockReturnValue({ select: jest.fn().mockResolvedValue([]) }),
 }));
+
+// ── Duplicate-protection lock + audit (real behaviour covered in
+//    __tests__/integration/poDedupe.integration.test.js against real Mongo) ──
+jest.mock('../../../models/OrderSubmissionLock', () => ({
+  create:    jest.fn().mockResolvedValue({}),
+  updateOne: jest.fn().mockResolvedValue({}),
+  deleteOne: jest.fn().mockResolvedValue({}),
+}));
+jest.mock('../../../repositories/audit.repository', () => ({ log: jest.fn().mockResolvedValue({}) }));
 
 // ── Mock PurchaseOrder model ─────────────────────────────────────────────────
 const mockSavedOrder = {
@@ -171,14 +181,14 @@ describe('POST /api/orders — create purchase order', () => {
 
   it('creates an order successfully and returns the saved document', async () => {
     withSession(STAFF_SESSION);
-    userModel.findOne.mockResolvedValue(mockUser);
+    userModel.findById.mockResolvedValue(mockUser);
 
     const res = await request(buildApp())
       .post('/api/orders')
       .set('Cookie', ['sessionId=s1'])
       .send(VALID_BODY);
 
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(201);
     expect(res.body.success).toBe(true);
     expect(res.body.newOrder._id).toBe('order-001');
     expect(res.body.newOrder.status).toBe('Pending');
@@ -196,7 +206,7 @@ describe('POST /api/orders — create purchase order', () => {
 
   it('resolves Department from the User record, not the request body', async () => {
     withSession(STAFF_SESSION);
-    userModel.findOne.mockResolvedValue({ ...mockUser, Department: 'accounts_dep' });
+    userModel.findById.mockResolvedValue({ ...mockUser, Department: 'accounts_dep' });
 
     await request(buildApp())
       .post('/api/orders')
@@ -210,7 +220,7 @@ describe('POST /api/orders — create purchase order', () => {
 
   it('passes targetDepartment through to the order', async () => {
     withSession(STAFF_SESSION);
-    userModel.findOne.mockResolvedValue(mockUser);
+    userModel.findById.mockResolvedValue(mockUser);
 
     await request(buildApp())
       .post('/api/orders')
@@ -224,7 +234,7 @@ describe('POST /api/orders — create purchase order', () => {
 
   it('returns 400 when products is not an array', async () => {
     withSession(STAFF_SESSION);
-    userModel.findOne.mockResolvedValue(mockUser);
+    userModel.findById.mockResolvedValue(mockUser);
 
     const res = await request(buildApp())
       .post('/api/orders')
@@ -238,7 +248,7 @@ describe('POST /api/orders — create purchase order', () => {
 
   it('returns 400 when products is an object instead of an array', async () => {
     withSession(STAFF_SESSION);
-    userModel.findOne.mockResolvedValue(mockUser);
+    userModel.findById.mockResolvedValue(mockUser);
 
     const res = await request(buildApp())
       .post('/api/orders')
@@ -249,17 +259,65 @@ describe('POST /api/orders — create purchase order', () => {
     expect(mockSave).not.toHaveBeenCalled();
   });
 
-  it('returns 404 when the email does not match any user', async () => {
+  it('returns 404 when the session user no longer exists', async () => {
     withSession(STAFF_SESSION);
-    userModel.findOne.mockResolvedValue(null);
+    userModel.findById.mockResolvedValue(null);
 
     const res = await request(buildApp())
       .post('/api/orders')
       .set('Cookie', ['sessionId=s1'])
-      .send({ ...VALID_BODY, email: 'unknown@test.com' });
+      .send(VALID_BODY);
 
     expect(res.status).toBe(404);
     expect(res.body.error).toMatch(/user not found/i);
+    expect(userModel.findById).toHaveBeenCalledWith('user-001');
+    expect(mockSave).not.toHaveBeenCalled();
+  });
+
+  it('takes staff and email from the session, ignoring spoofed body values', async () => {
+    withSession(STAFF_SESSION);
+    userModel.findById.mockResolvedValue(mockUser);
+
+    const res = await request(buildApp())
+      .post('/api/orders')
+      .set('Cookie', ['sessionId=s1'])
+      .send({ ...VALID_BODY, staff: 'someone-else', email: 'victim@test.com' });
+
+    expect(res.status).toBe(201);
+    expect(PurchaseOrder).toHaveBeenCalledWith(
+      expect.objectContaining({ staff: 'user-001', email: 'john@test.com' })
+    );
+  });
+
+  it('stores the content fingerprint and the Idempotency-Key on the order', async () => {
+    withSession(STAFF_SESSION);
+    userModel.findById.mockResolvedValue(mockUser);
+    PurchaseOrder.findOne = jest.fn().mockResolvedValue(null); // no prior order for this key
+
+    const res = await request(buildApp())
+      .post('/api/orders')
+      .set('Cookie', ['sessionId=s1'])
+      .set('Idempotency-Key', 'attempt-123')
+      .send(VALID_BODY);
+
+    expect(res.status).toBe(201);
+    const arg = PurchaseOrder.mock.calls[0][0];
+    expect(arg.idempotencyKey).toBe('attempt-123');
+    expect(arg.submissionFingerprint).toMatch(/^[a-f0-9]{64}$/);
+  });
+
+  it('returns 400 for a malformed Idempotency-Key', async () => {
+    withSession(STAFF_SESSION);
+    userModel.findById.mockResolvedValue(mockUser);
+
+    const res = await request(buildApp())
+      .post('/api/orders')
+      .set('Cookie', ['sessionId=s1'])
+      .set('Idempotency-Key', 'bad key with spaces!')
+      .send(VALID_BODY);
+
+    expect(res.status).toBe(400);
+    expect(res.body.code).toBe('INVALID_IDEMPOTENCY_KEY');
     expect(mockSave).not.toHaveBeenCalled();
   });
 
@@ -276,7 +334,7 @@ describe('POST /api/orders — create purchase order', () => {
 
   it('returns 500 when the database save throws an unexpected error', async () => {
     withSession(STAFF_SESSION);
-    userModel.findOne.mockResolvedValue(mockUser);
+    userModel.findById.mockResolvedValue(mockUser);
     mockSave.mockRejectedValue(new Error('DB connection lost'));
 
     const res = await request(buildApp())
@@ -290,14 +348,14 @@ describe('POST /api/orders — create purchase order', () => {
 
   it('admin can also create an order', async () => {
     withSession(ADMIN_SESSION);
-    userModel.findOne.mockResolvedValue({ ...mockUser, role: 'admin', email: 'admin@test.com' });
+    userModel.findById.mockResolvedValue({ ...mockUser, role: 'admin', email: 'admin@test.com' });
 
     const res = await request(buildApp())
       .post('/api/orders')
       .set('Cookie', ['sessionId=s1'])
       .send({ ...VALID_BODY, email: 'admin@test.com' });
 
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(201);
     expect(res.body.success).toBe(true);
   });
 });
@@ -337,17 +395,17 @@ describe('POST /api/orders — all roles are permitted to create', () => {
     mockSave.mockResolvedValue(mockSavedOrder);
   });
 
-  test.each(ALL_ROLES)('role "%s" receives 200', async (role) => {
+  test.each(ALL_ROLES)('role "%s" receives 201', async (role) => {
     const session = JSON.stringify({ userId: `user-${role}`, role, name: 'Test User', email: 'test@test.com' });
     withSession(session);
-    userModel.findOne.mockResolvedValue({ ...mockUser, role, email: 'test@test.com' });
+    userModel.findById.mockResolvedValue({ ...mockUser, role, email: 'test@test.com' });
 
     const res = await request(buildApp())
       .post('/api/orders')
       .set('Cookie', ['sessionId=s1'])
       .send({ ...VALID_BODY, email: 'test@test.com' });
 
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(201);
     expect(res.body.success).toBe(true);
   });
 });
@@ -567,15 +625,26 @@ describe('DELETE /api/orders/:id — cascade deletes attachments', () => {
     jest.clearAllMocks();
     mockRedisClient.connect.mockResolvedValue();
     mockRedisClient.expire.mockResolvedValue();
+    // Owner deleting their own Pending order (route: findById().populate() → deleteOne())
+    mockRedisClient.get.mockResolvedValue(STAFF_SESSION);
+    deleteFileFromCloud.mockResolvedValue();
   });
 
+  const mockOrderLookup = (order) => {
+    PurchaseOrder.findById = jest.fn().mockReturnValue({
+      populate: jest.fn().mockResolvedValue(
+        order ? { status: 'Pending', staff: { _id: 'user-001' }, deleteOne: jest.fn().mockResolvedValue({}), ...order } : null
+      ),
+    });
+  };
+
   it('deletes the order with no fileRefs — no cleanup attempted', async () => {
-    PurchaseOrder.findByIdAndDelete = jest.fn().mockResolvedValue({
+    mockOrderLookup({
       _id: 'order-001',
       fileRefs: null,
     });
 
-    const res = await request(buildApp()).delete('/api/orders/order-001');
+    const res = await request(buildApp()).delete('/api/orders/order-001').set('Cookie', ['sessionId=s1']);
 
     expect(res.status).toBe(200);
     expect(res.body.message).toMatch(/deleted successfully/i);
@@ -585,7 +654,7 @@ describe('DELETE /api/orders/:id — cascade deletes attachments', () => {
   });
 
   it('deletes a GCS-backed attachment and the file document', async () => {
-    PurchaseOrder.findByIdAndDelete = jest.fn().mockResolvedValue({
+    mockOrderLookup({
       _id: 'order-001',
       fileRefs: 'file-doc-001',
     });
@@ -595,7 +664,7 @@ describe('DELETE /api/orders/:id — cascade deletes attachments', () => {
     });
     fileModel.findByIdAndDelete.mockResolvedValue({});
 
-    const res = await request(buildApp()).delete('/api/orders/order-001');
+    const res = await request(buildApp()).delete('/api/orders/order-001').set('Cookie', ['sessionId=s1']);
 
     expect(res.status).toBe(200);
     expect(deleteFileFromCloud).toHaveBeenCalledWith('uuid-invoice.pdf');
@@ -604,7 +673,7 @@ describe('DELETE /api/orders/:id — cascade deletes attachments', () => {
   });
 
   it('deletes a Drive-backed (legacy) attachment and the file document', async () => {
-    PurchaseOrder.findByIdAndDelete = jest.fn().mockResolvedValue({
+    mockOrderLookup({
       _id: 'order-001',
       fileRefs: 'file-doc-002',
     });
@@ -614,7 +683,7 @@ describe('DELETE /api/orders/:id — cascade deletes attachments', () => {
     });
     fileModel.findByIdAndDelete.mockResolvedValue({});
 
-    const res = await request(buildApp()).delete('/api/orders/order-001');
+    const res = await request(buildApp()).delete('/api/orders/order-001').set('Cookie', ['sessionId=s1']);
 
     expect(res.status).toBe(200);
     expect(deleteFileFromDrive).toHaveBeenCalledWith('drive-id-123');
@@ -623,7 +692,7 @@ describe('DELETE /api/orders/:id — cascade deletes attachments', () => {
   });
 
   it('deletes multiple attachments across both storage backends', async () => {
-    PurchaseOrder.findByIdAndDelete = jest.fn().mockResolvedValue({
+    mockOrderLookup({
       _id: 'order-001',
       fileRefs: 'file-doc-003',
     });
@@ -636,7 +705,7 @@ describe('DELETE /api/orders/:id — cascade deletes attachments', () => {
     });
     fileModel.findByIdAndDelete.mockResolvedValue({});
 
-    const res = await request(buildApp()).delete('/api/orders/order-001');
+    const res = await request(buildApp()).delete('/api/orders/order-001').set('Cookie', ['sessionId=s1']);
 
     expect(res.status).toBe(200);
     expect(deleteFileFromCloud).toHaveBeenCalledWith('uuid-a.pdf');
@@ -644,7 +713,7 @@ describe('DELETE /api/orders/:id — cascade deletes attachments', () => {
   });
 
   it('still deletes the order even if storage cleanup throws', async () => {
-    PurchaseOrder.findByIdAndDelete = jest.fn().mockResolvedValue({
+    mockOrderLookup({
       _id: 'order-001',
       fileRefs: 'file-doc-004',
     });
@@ -655,7 +724,7 @@ describe('DELETE /api/orders/:id — cascade deletes attachments', () => {
     deleteFileFromCloud.mockRejectedValue(new Error('GCS unreachable'));
     fileModel.findByIdAndDelete.mockResolvedValue({});
 
-    const res = await request(buildApp()).delete('/api/orders/order-001');
+    const res = await request(buildApp()).delete('/api/orders/order-001').set('Cookie', ['sessionId=s1']);
 
     expect(res.status).toBe(200);
     expect(res.body.message).toMatch(/deleted successfully/i);
@@ -663,22 +732,22 @@ describe('DELETE /api/orders/:id — cascade deletes attachments', () => {
   });
 
   it('returns 404 when the order does not exist', async () => {
-    PurchaseOrder.findByIdAndDelete = jest.fn().mockResolvedValue(null);
+    mockOrderLookup(null);
 
-    const res = await request(buildApp()).delete('/api/orders/order-001');
+    const res = await request(buildApp()).delete('/api/orders/order-001').set('Cookie', ['sessionId=s1']);
 
     expect(res.status).toBe(404);
     expect(fileModel.findById).not.toHaveBeenCalled();
   });
 
   it('does not attempt file cleanup when the fileRefs document is missing', async () => {
-    PurchaseOrder.findByIdAndDelete = jest.fn().mockResolvedValue({
+    mockOrderLookup({
       _id: 'order-001',
       fileRefs: 'file-doc-005',
     });
     fileModel.findById.mockResolvedValue(null);
 
-    const res = await request(buildApp()).delete('/api/orders/order-001');
+    const res = await request(buildApp()).delete('/api/orders/order-001').set('Cookie', ['sessionId=s1']);
 
     expect(res.status).toBe(200);
     expect(deleteFileFromCloud).not.toHaveBeenCalled();
@@ -711,7 +780,7 @@ describe('POST /api/orders — maintenance requests', () => {
     userModel.find.mockReturnValue({ select: jest.fn().mockResolvedValue([]) });
     mockSave.mockResolvedValue(mockSavedOrder);
     mockRedisClient.get.mockResolvedValue(STAFF_SESSION);
-    userModel.findOne.mockResolvedValue(mockUser);
+    userModel.findById.mockResolvedValue(mockUser);
   });
 
   it('persists the maintenance fields on the order', async () => {
@@ -720,7 +789,7 @@ describe('POST /api/orders — maintenance requests', () => {
       .set('Cookie', ['sessionId=s1'])
       .send(MAINT_BODY);
 
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(201);
     expect(PurchaseOrder).toHaveBeenCalledWith(
       expect.objectContaining({
         isMaintenance: true,
@@ -748,7 +817,7 @@ describe('POST /api/orders — maintenance requests', () => {
       .set('Cookie', ['sessionId=s1'])
       .send({ ...MAINT_BODY, assetCategory: 'IT_equipment', assetSubCategory: 'Laptops' });
 
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(201);
     expect(PurchaseOrder).toHaveBeenCalledWith(
       expect.objectContaining({ assetCategory: 'IT_equipment', assetSubCategory: 'Laptops' })
     );
@@ -772,7 +841,7 @@ describe('POST /api/orders — maintenance requests', () => {
       .set('Cookie', ['sessionId=s1'])
       .send({ ...MAINT_BODY, isMaintenance: false, assetCategory: undefined, assetSubCategory: undefined });
 
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(201);
     const arg = PurchaseOrder.mock.calls[0][0];
     expect(arg.isMaintenance).toBe(false);
     expect(arg).not.toHaveProperty('assetSubCategory');

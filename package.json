@@ -66,6 +66,7 @@
   },
   "devDependencies": {
     "jsdoc": "^4.0.5",
+    "mongodb-memory-server": "^10.1.4",
     "supertest": "^7.1.1",
     "swagger-jsdoc": "^6.2.8",
     "swagger-ui-express": "^5.0.1"
