@@ -53,7 +53,7 @@ const GetOverallMonthlyRequests = async (req, res) => {
             $gte: startOfDay,
             $lte: endOfDay,
         };
-        const Requests = await PurchaseOrder.find(query).populate("staff", "name email Department -password").lean()
+        const Requests = await PurchaseOrder.find(query).populate("staff", "name email Department").lean() // password is hidden by the model (select: false); "-password" here would mix inclusion and exclusion and throw
 
         
         const filteredRequests=Requests.filter((request)=>{
@@ -99,18 +99,20 @@ const MonthlyStaffRequest=async(req,res)=>{
             if (list.length) query.status = { $in: list };
         } else {
             // Default (dashboard monthly stats): limit to the current-month window.
+            // First day of this month 00:00 to last day of this month 23:59:59.999 (UTC).
+            // The old window ran from the last day of the previous month to about the
+            // 25th, so requests made late in the month were missing from staff counts.
             const now = new Date();
             const startOfDay = new Date(Date.UTC(
                 now.getUTCFullYear(),
                 now.getUTCMonth(),
-                0, 0, 0, 0
+                1, 0, 0, 0, 0
             ));
 
             const endOfDay = new Date(Date.UTC(
                 now.getUTCFullYear(),
-                now.getUTCMonth(),
-
-                23, 59, 59, 999
+                now.getUTCMonth() + 1,
+                0, 23, 59, 59, 999
             ));
 
             query.createdAt = {
