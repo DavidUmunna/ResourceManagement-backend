@@ -37,10 +37,14 @@ let mongo;
 let admin, director, head, staff, other;
 let procurement, accounts;
 
+const csrf = require('csurf');
+
 const app = () => {
   const a = express();
   a.use(express.json());
   a.use(cookieParser());
+  // test-only endpoint to get a CSRF token for the DELETE route
+  a.get('/csrf', csrf({ cookie: true }), (req, res) => res.json({ token: req.csrfToken() }));
   a.use('/api/users', usersRoutes);
   a.use('/api/signin', signinRoutes);
   a.use('/api/department', departmentRoutes);
@@ -185,5 +189,97 @@ describe('users.Department follows department membership', () => {
     expect(byEmail[staff.email].fixTo).toBe('Procurement_department');
     expect(byEmail[head.email].issue).toMatch(/several departments/);
     expect(byEmail[head.email].fixTo).toBeNull();
+  });
+});
+
+describe('user accounts can only be managed by global admins', () => {
+  it('staff cannot create users or promote themselves', async () => {
+    const create = await request(app()).post('/api/users').set('Cookie', login(staff))
+      .send({ name: 'Evil', email: 'evil@test.com', password: 'longenough', role: 'global_admin' });
+    expect(create.status).toBe(403);
+    const promote = await request(app()).put(`/api/users/${staff._id}/updateuser`).set('Cookie', login(staff)).send({ role: 'global_admin' });
+    expect(promote.status).toBe(403);
+    expect((await User.findById(staff._id).lean()).role).toBe('staff');
+  });
+
+  it('heads of department and the Director cannot manage accounts either', async () => {
+    for (const u of [head, director]) {
+      const res = await request(app()).put(`/api/users/${staff._id}/updateuser`).set('Cookie', login(u)).send({ role: 'admin' });
+      expect(res.status).toBe(403);
+    }
+  });
+
+  it('global admins can create users; weak passwords and duplicates are refused', async () => {
+    const ok = await request(app()).post('/api/users').set('Cookie', login(admin))
+      .send({ name: 'New Person', email: 'new@test.com', password: 'longenough', role: 'staff', Department: 'accounts_dep' });
+    expect(ok.status).toBe(201);
+    // joins the accounts department member list
+    const a = await Department.findById(accounts._id).lean();
+    expect(a.users.some((m) => m.name === 'New Person')).toBe(true);
+
+    const weak = await request(app()).post('/api/users').set('Cookie', login(admin))
+      .send({ name: 'Weak', email: 'weak@test.com', password: 'short', role: 'staff' });
+    expect(weak.status).toBe(400);
+    const dup = await request(app()).post('/api/users').set('Cookie', login(admin))
+      .send({ name: 'Dup', email: 'new@test.com', password: 'longenough', role: 'staff' });
+    expect(dup.status).toBe(400);
+  });
+
+  it('delete needs a login and a global admin', async () => {
+    expect((await request(app()).delete(`/api/users/${staff._id}`)).status).toBe(401);
+    expect((await request(app()).delete(`/api/users/${staff._id}`).set('Cookie', login(head))).status).toBe(403);
+  });
+
+  const csrfFor = async (user) => {
+    const agent = request.agent(app());
+    const r = await agent.get('/csrf');
+    const csrfCookie = r.headers['set-cookie'].map((c) => c.split(';')[0]);
+    return { cookies: [...login(user), ...csrfCookie], token: r.body.token };
+  };
+
+  it('admin delete removes the user from department member lists', async () => {
+    const { cookies, token } = await csrfFor(admin);
+    const res = await request(app()).delete(`/api/users/${staff._id}`).set('Cookie', cookies).set('X-CSRF-Token', token);
+    expect(res.status).toBe(200);
+    const p = await Department.findById(procurement._id).lean();
+    expect(p.users.map((m) => String(m._id))).not.toContain(String(staff._id));
+  });
+
+  it('refuses to delete a head of department or yourself', async () => {
+    const { cookies, token } = await csrfFor(admin);
+    expect((await request(app()).delete(`/api/users/${head._id}`).set('Cookie', cookies).set('X-CSRF-Token', token)).status).toBe(400);
+    expect((await request(app()).delete(`/api/users/${admin._id}`).set('Cookie', cookies).set('X-CSRF-Token', token)).status).toBe(400);
+  });
+
+  it('looking a user up by email needs a global admin and never shows secrets', async () => {
+    expect((await request(app()).get(`/api/users/${staff.email}`)).status).toBe(401);
+    expect((await request(app()).get(`/api/users/${staff.email}`).set('Cookie', login(head))).status).toBe(403);
+    await User.updateOne({ _id: staff._id }, { $set: { resetToken: 'tok', resetTokenExpiration: new Date(Date.now() + 60000) } });
+    const res = await request(app()).get(`/api/users/${staff.email}`).set('Cookie', login(admin));
+    expect(res.status).toBe(200);
+    expect(JSON.stringify(res.body)).not.toMatch(/password|resetToken/);
+  });
+});
+
+describe('password reset', () => {
+  it('never returns the reset token, and answers the same for unknown emails', async () => {
+    const res = await request(app()).put('/api/users/reset').send({ email: staff.email });
+    expect(res.status).toBe(200);
+    expect(JSON.stringify(res.body)).not.toMatch(/resetToken|password/);
+    const saved = await User.findById(staff._id).select('+resetToken').lean();
+    expect(saved.resetToken).toBeTruthy();
+    expect(JSON.stringify(res.body)).not.toContain(saved.resetToken);
+
+    const unknown = await request(app()).put('/api/users/reset').send({ email: 'nobody@test.com' });
+    expect(unknown.status).toBe(200);
+    expect(unknown.body.message).toBe(res.body.message);
+  });
+
+  it('the emailed token still resets the password', async () => {
+    await request(app()).put('/api/users/reset').send({ email: staff.email });
+    const { resetToken } = await User.findById(staff._id).select('+resetToken').lean();
+    const res = await request(app()).put('/api/users/reset-password').send({ token: resetToken, newPassword: 'brandnew123' });
+    expect(res.status).toBe(200);
+    expect((await User.findById(staff._id).select('+password').lean()).password).toBe('hashed:brandnew123');
   });
 });

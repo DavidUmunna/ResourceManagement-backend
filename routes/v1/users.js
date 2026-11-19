@@ -8,7 +8,8 @@ const crypto=require("crypto")
 const {transporter} = require('../../emailnotification/emailNotification');
 const csrf=require("csurf")
 const csrfProtection=csrf({cookie:true})
-const { DEPARTMENT_ADMIN_ROLES } = require("../../constants/department.constants")
+const { DEPARTMENT_ADMIN_ROLES, USER_ADMIN_ROLES } = require("../../constants/department.constants")
+const Department = require("../../models/Department")
 const { isHeadOfAnyDepartment } = require("../../services/departmentAccess")
 const membership = require("../../services/departmentMembership")
 const router=Router()
@@ -17,6 +18,14 @@ const router=Router()
 // Users page (global_admin), Leave Admin (admin/global_admin/HR), Leave Summary (Director),
 // and the department page (DEPARTMENT_ADMIN_ROLES).
 const USER_LIST_FULL_ROLES = [...new Set([...DEPARTMENT_ADMIN_ROLES, "Director"])]
+
+// Creating, editing and deleting accounts (and looking one up by email) is for user admins only.
+const requireUserAdmin = (req, res, next) => {
+  if (!USER_ADMIN_ROLES.includes(req.user?.role)) {
+    return res.status(403).json({ success: false, message: "Only global admins can manage user accounts" })
+  }
+  next()
+}
 
 router.get("/", auth, async (req, res) => {
   try {
@@ -80,7 +89,7 @@ router.get("/", auth, async (req, res) => {
 });*/
 
 
-router.get("/:email", async (req, res) => {
+router.get("/:email", auth, requireUserAdmin, async (req, res) => {
   try {
     const { email } = req.params;
     
@@ -118,13 +127,19 @@ router.get("/roles&departments",async(req,res)=>{
   }
 })
 //create the user
-router.post('/', auth,async (req, res) => {
+router.post('/', auth, requireUserAdmin, async (req, res) => {
   try {
     const can_approve_roles = ["procurement_officer", "human_resources", "internal_auditor", "global_admin","waste_mnagement_manager","waste_management_supervisor",
       "PVT_manager","Environmental_lab_manager","Financial_manager","Accountant","Director","Contracts_manager"];
     const { name, email, password, Department, role } = req.body;
     if (!/^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-z]{2,}$/.test(email)){
       return res.status(403).json({message:"email does not match format"})
+    }
+    if (!name || typeof password !== 'string' || password.length < 8) {
+      return res.status(400).json({message:"Name and a password of at least 8 characters are required"})
+    }
+    if (await User.exists({ email })) {
+      return res.status(400).json({message:"A user with this email already exists"})
     }
     const hashedPassword = await bcrypt.hash(password, 10);
 
@@ -173,9 +188,11 @@ router.put("/reset" ,async (req, res) => {
           `,
         };
         await  transporter.sendMail(mailOptions);
-        return res.status(200).json({success:true, message:  "If this email exists, a reset link will be sent.", user });
+        // Never return the user here: it carried the new resetToken, which let anyone reset any password
+        return res.status(200).json({success:true, message:  "If this email exists, a reset link will be sent." });
       } else {
-          return res.status(404).json({ success:false,message: "User not found" });
+          // Same answer either way, so this can't be used to check which emails have accounts
+          return res.status(200).json({success:true, message:  "If this email exists, a reset link will be sent." });
       }
   } catch (error) {
       console.error("Error fetching user:", error);
@@ -185,18 +202,13 @@ router.put("/reset" ,async (req, res) => {
 
 router.put("/reset-password", async (req, res) => {
   const { token, newPassword } = req.body;
-  
-  console.log(token)
-  if (!newPassword) {
+  if (!token || !newPassword) {
     return res.status(400).json({ message: "New password is required" });
   }
 
   try {
-    console.log("Current time:", new Date(Date.now()));
     const user = await User.findOne({ resetToken: token,
     resetTokenExpiration: { $gt: Date.now() }});
-
-    console.log(user)
 
     if (!user) {
       return res.status(404).json({success:false, message: "invalid or expired token " });
@@ -215,7 +227,7 @@ router.put("/reset-password", async (req, res) => {
   }
 });
 
-router.put("/:id/updateuser",auth,async(req,res)=>{
+router.put("/:id/updateuser", auth, requireUserAdmin, async(req,res)=>{
   try{
     const {Department,canApprove,name,email,password,role,WorkStatus}=req.body
     const {id}=req.params
@@ -267,16 +279,26 @@ router.put("/:id/updateuser",auth,async(req,res)=>{
   }
 })
 //delete User
-router.delete('/:id',csrfProtection,async (req,res)=>{
+router.delete('/:id', auth, requireUserAdmin, csrfProtection, async (req,res)=>{
   try{
-      const deleteuser=await User.findByIdAndDelete(req.params.id)
+      const { id } = req.params
+      if (String(id) === String(req.user?.userId)) {
+        return res.status(400).json({ message: "You cannot delete your own account" })
+      }
+      const headOf = await Department.findOne({ "headOfDepartment.user": id }).select("name").lean()
+      if (headOf) {
+        return res.status(400).json({ message: `This user is head of ${headOf.name}. Assign a new head before deleting them.` })
+      }
+      const deleteuser=await User.findByIdAndDelete(id)
       if (!deleteuser){
         return res.status(404).json({ message: "User not found" });
-      }res.json({ message: "Order deleted successfully" });
-      
-
+      }
+      // Remove them from every department member list
+      await Department.updateMany({ "users._id": deleteuser._id }, { $pull: { users: { _id: deleteuser._id } } })
+      res.json({ message: "User deleted successfully" });
   }catch(err){
-    res.status(500).json({ message: "Error deleting User", err });
+    console.error("Error deleting user:", err)
+    res.status(500).json({ message: "Error deleting User" });
   }
 })
 

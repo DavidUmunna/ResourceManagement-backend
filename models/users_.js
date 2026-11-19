@@ -18,8 +18,9 @@ const UserSchema = new Schema({
     },
   WorkStatus:{type:String,enum:["On-Site","On-Leave","Remote"],default:"On-Site"},
   NotificationToken:{type:String},
-  resetToken:String,
-  resetTokenExpiration:Date
+  // Hidden from queries: a leaked reset token lets anyone set this user's password
+  resetToken:{ type: String, select: false },
+  resetTokenExpiration:{ type: Date, select: false }
   
 }, { timestamps: true, toJSON: { virtuals: true }, toObject: { virtuals: true } });
 
