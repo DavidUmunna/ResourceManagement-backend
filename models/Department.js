@@ -44,10 +44,11 @@ departmentSchema.pre('save', async function(next) {
     }
 
     // Update names for modified user references in users array
+    // Members are stored as { _id: <user id>, name }; fill in any missing names
     if (this.isModified('users')) {
       await Promise.all(this.users.map(async (member, index) => {
-        if (member.isModified('user') && member.user) {
-          const userDoc = await User.findById(member.user).select('name');
+        if (member._id && !member.name) {
+          const userDoc = await User.findById(member._id).select('name');
           this.users[index].name = userDoc?.name || null;
         }
       }));

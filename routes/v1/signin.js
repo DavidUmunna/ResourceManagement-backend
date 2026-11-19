@@ -47,15 +47,17 @@ router.post('/',logging, async (req, res) => {
         const email = username; 
 
         // Find user once (avoiding redundant queries)
-        const user_data = await users.findOne({ email });
+        // password is select:false on the model, so ask for it explicitly
+        const user_data = await users.findOne({ email }).select('+password');
 
         // If user doesn't exist, return error
         if (!user_data) {
             return res.status(401).json({ success: false, message: 'Invalid credentials' });
         }
-        //const new_sign_in=new sign_in({email,password})
-        // Compare hashed passwords
-        const isMatch = await users.exists({ password: password });
+        // Compare the typed password with THIS user's hash. The old check,
+        // users.exists({ password }), matched any user's stored hash, so anyone
+        // holding a hash could log in as any email.
+        const isMatch = typeof password === 'string' && await bcrypt.compare(password, user_data.password);
         if (!isMatch) {
             return res.status(401).json({ success: false, message: 'Invalid credentials' });
         }

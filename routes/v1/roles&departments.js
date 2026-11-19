@@ -1,6 +1,7 @@
 const express=require("express")
 const auth=require("../../middlewares/check-auth");
 const monitorLogger = require("../../middlewares/monitorLogger");
+const { DEPARTMENT_ADMIN_ROLES } = require("../../constants/department.constants");
 const router=express.Router()
 
 router.post("/",auth,monitorLogger,async(req,res)=>{
@@ -44,7 +45,7 @@ router.post("/",auth,monitorLogger,async(req,res)=>{
             ]
         }
         }if (item.ADMIN_ROLES_DEPARTMENT){
-                rbac_object["ADMIN_ROLES_DEPARTMENT"]=["admin","global_admin","human_resources"]
+                rbac_object["ADMIN_ROLES_DEPARTMENT"]=DEPARTMENT_ADMIN_ROLES
         }if(item.DELETIONROLES){
             rbac_object["DELETIONROLES"]=["global_admin","human_resources"]
         }

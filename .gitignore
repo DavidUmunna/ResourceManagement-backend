@@ -58,3 +58,7 @@ ecosystem.config.js
 test.txt
 google-service-account-gcs.json
 .claude/
+*.pub
+
+
+DavidUmunnnaKey1

@@ -34,7 +34,13 @@ const taskSchema = new mongoose.Schema({
     enum: ['Pending', 'In Progress', 'Completed'],
     default: 'Pending',
   },
-  
+  // Set when the task moves to Completed, cleared if it is reopened.
+  // Used for completion-time stats instead of updatedAt, which changes on any edit.
+  completedAt: {
+    type: Date,
+    default: null,
+  },
+
 },{timestamps:true},{strict:true});
 
 module.exports = mongoose.model('tasks', taskSchema);

@@ -4,7 +4,8 @@ const {Schema, model}=require('mongoose')
 const UserSchema = new Schema({
   name: { type: String, required: true },
   email: { type: String, required: true, unique:true},
-  password: { type: String, required: true,select:true },
+  // Never returned by queries unless asked for with .select('+password') (login only)
+  password: { type: String, required: true, select: false },
   Department:{type:String, enum:["waste_management_dep","PVT","Environmental_lab_dep","accounts_dep","Human resources","Administration",
     "IT","QHSE_dep","Procurement_department","Contracts_Department","Business_Development","Engineering_Department","Visitor"]},
   role: { type: String, enum: ["admin", "procurement_officer","human_resources","staff",

@@ -35,7 +35,8 @@ router.post('/login', loginRateLimiter, async (req, res) => {
       return res.status(400).json({message:"the username entered is Not Valid"})
       
     }
-    const user_data = await AdminUser.findOne({ email: username }).lean();
+    // password is select:false on the model, so ask for it explicitly here
+    const user_data = await AdminUser.findOne({ email: username }, '+password').lean();
 
     if (!user_data || !(await bcrypt.compare(password, user_data.password))) {
       return res.status(401).json({ message: "Invalid email or password" });

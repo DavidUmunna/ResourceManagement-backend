@@ -8,10 +8,25 @@ const crypto=require("crypto")
 const {transporter} = require('../../emailnotification/emailNotification');
 const csrf=require("csurf")
 const csrfProtection=csrf({cookie:true})
+const { DEPARTMENT_ADMIN_ROLES } = require("../../constants/department.constants")
+const { isHeadOfAnyDepartment } = require("../../services/departmentAccess")
+const membership = require("../../services/departmentMembership")
 const router=Router()
 
-router.get("/", async (req, res) => {
+// Roles that may see full user details (email, role, department, status) in the users list:
+// Users page (global_admin), Leave Admin (admin/global_admin/HR), Leave Summary (Director),
+// and the department page (DEPARTMENT_ADMIN_ROLES).
+const USER_LIST_FULL_ROLES = [...new Set([...DEPARTMENT_ADMIN_ROLES, "Director"])]
+
+router.get("/", auth, async (req, res) => {
   try {
+    const fullAccess = USER_LIST_FULL_ROLES.includes(req.user?.role)
+    // Heads of department only need names and ids (the department page's "Add member" list)
+    const namesOnly = !fullAccess && await isHeadOfAnyDepartment(req.user?.userId)
+    if (!fullAccess && !namesOnly) {
+      return res.status(403).json({ message: "You do not have access to the users list" })
+    }
+
     const page       = Math.max(1, parseInt(req.query.page)  || 1);
     const limit      = Math.min(100, Math.max(1, parseInt(req.query.limit) || 20));
     const skip       = (page - 1) * limit;
@@ -28,7 +43,8 @@ router.get("/", async (req, res) => {
     }
 
     const [users, total] = await Promise.all([
-      User.find(filter).skip(skip).limit(limit).lean(),
+      User.find(filter).select(namesOnly ? "name" : "-resetToken -resetTokenExpiration -NotificationToken")
+        .sort({ name: 1 }).skip(skip).limit(limit).lean(),
       User.countDocuments(filter),
     ]);
 
@@ -122,6 +138,7 @@ router.post('/', auth,async (req, res) => {
     });
 
     await new_user.save();
+    if (Department) await membership.onUserDepartmentSet(new_user, null, Department);
     res.status(201).json({success:true,message:"User creation was successful"});
 
   } catch (error) {
@@ -206,6 +223,8 @@ router.put("/:id/updateuser",auth,async(req,res)=>{
     if (!user_update) {
       return res.status(404).json({ message: "User not found" });
     }
+    const previousDepartment = user_update.Department
+    const previousName = user_update.name
         
     if (Department){
       user_update.Department=Department
@@ -228,11 +247,19 @@ router.put("/:id/updateuser",auth,async(req,res)=>{
     }
     if (typeof password === 'string' && password.trim() !== '') {
       const hashedPassword = await bcrypt.hash(password, 10);
-      User.password = hashedPassword;
+      user_update.password = hashedPassword; // was User.password, which never saved the new password
     }
 
     await user_update.save()
-    res.status(200).json({success:true,message:"user details updated successfully",data:user_update})
+    // Keep department member lists in step with users.Department and the user's name
+    if (Department && Department !== previousDepartment) {
+      await membership.onUserDepartmentSet(user_update, previousDepartment, Department)
+    }
+    if (name && name !== previousName) {
+      await membership.onUserRenamed(user_update._id, name)
+    }
+    const { password: _omit, ...safeUser } = user_update.toObject()
+    res.status(200).json({success:true,message:"user details updated successfully",data:safeUser})
 
   }catch(error){
     console.error("this error originated from users PUT:",error)
