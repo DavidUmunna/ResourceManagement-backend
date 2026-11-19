@@ -1,3 +1,25 @@
+## [17/11/25]
+### Bug Fix — Duplicate Purchase Order Submissions
+- **Issue**: Users could submit identical purchase orders multiple times (double-click, network retry, or re-submission), resulting in duplicate POs cluttering the approval queue and causing confusion for managers.
+- **Root cause**: No server-side guard existed to detect or reject duplicate submissions. The POST `/orders` endpoint was fully idempotent — the same payload could be submitted any number of times.
+- **Fix**:
+  - Added `OrderSubmissionLock` model — a time-windowed lock keyed on requester + department + title to prevent concurrent duplicate submissions.
+  - Added `orderDedupe.service.js` — detects duplicate orders within a configurable time window before creating a new one.
+  - Added compound unique index on `PurchaseOrder` (requester, department, title, date window) via `syncOrderIndexes.js` maintenance script.
+  - Extracted order creation into `purchaseOrderCreate.service.js` for testability.
+- **Side fix**: DELETE endpoints on orders had no authentication at all — any unauthenticated request could delete any order. Restricted to: owner (pending status only), manager (own department only), global admin (any order).
+- **Scripts**: Run `node maintenanceScripts/syncOrderIndexes.js` on the DB before deploying. Run `node maintenanceScripts/findDuplicateOrders.js` to audit pre-existing duplicates.
+- **Tests added**: `poDedupe.integration.test.js`, `orderDedupe.service.test.js`, `cors.idempotency.test.js`.
+
+### Bug Fix — SSH/Private Key Files Exposed in Repo Directory
+- **Issue**: SSH key files (`DavidUmunnnaKey1`, `DavidUmunnnaKey1.pub`) were sitting untracked in the project root and could be accidentally staged/committed.
+- **Root cause**: `.gitignore` had no patterns covering SSH key files or private key naming conventions.
+- **Fix**: Added a `SSH / private keys` section to `.gitignore` with patterns: `*.pem`, `*.key`, `*.pub`, `*Key*`, `*_rsa`, `*_ed25519`, `*_ecdsa`.
+- **Impact**: Key files are now fully ignored by git and will not appear in `git status` or be stageable via `git add`.
+- **Action required**: Move key files out of the repo directory to `~/.ssh/` to avoid accidental exposure through directory sharing or syncing.
+
+---
+
 ### [13/03/25]
 ## Completed
 tracking of userdata and logg in
